@@ -58,6 +58,7 @@
 
 struct switch_dev   i7002a_sdev;
 static unsigned int version_num_in_isp = 0xffffff;
+static unsigned int fw_front_type_in_isp = 0x0;
 static unsigned int front_chip_id = 0xABCD;
 static unsigned int b_fw_is_valid = 1;
 
@@ -1321,9 +1322,19 @@ unsigned int get_fw_version_in_isp(void)
 		}
 	}
 
-	if (b_ok == true)
+	if (b_ok == true) {
 		vn = (tmp_page[0xFF - 1] <<16) | (tmp_page[0xFF - 2] << 8) | tmp_page[0xFF -3];
-	printk("%s: vn=0x%X\n", __FUNCTION__, vn);
+		printk("%s: vn=0x%X\n", __FUNCTION__, vn);
+
+		if ((tmp_page[0xFF - 4] == 0x27) && (tmp_page[0xFF - 5] == 0x20))
+			fw_front_type_in_isp = 1;
+		else if ((tmp_page[0xFF - 4] == 0x10) && (tmp_page[0xFF - 5] == 0x40))
+			fw_front_type_in_isp = 2;
+		else
+			fw_front_type_in_isp = 0;
+	} else
+		fw_front_type_in_isp = 0;
+
 	return vn;
 }
 
@@ -1502,6 +1513,7 @@ BB_WrSPIFlash(char* binfile_path)
 				fw_update_status = ICATCH_FW_UPDATE_FAILED;
 				printk("%s: check version FAIL: ISP(0x%06X) != BIN(0x%06X)\n", __FUNCTION__, version_num_in_isp, version_num_in_bin);
 				version_num_in_isp = 0xABCDEF;
+				fw_front_type_in_isp = 0;
 			}
 		} else {
 			/* checksum2 FAIL */
@@ -1510,6 +1522,7 @@ BB_WrSPIFlash(char* binfile_path)
 				__FUNCTION__, checksum2_in_isp[0], checksum2_in_isp[1],
 				checksum2_in_bin[0], checksum2_in_bin[1]);
 			version_num_in_isp = 0xABCDEF;
+			fw_front_type_in_isp = 0;
 		}
 	} else {
 		/* checksum1 FAIL */
@@ -1518,6 +1531,7 @@ BB_WrSPIFlash(char* binfile_path)
 			__FUNCTION__, checksum1_in_isp[0], checksum1_in_isp[1],
 			checksum1_in_bin[0], checksum1_in_bin[1]);
 		version_num_in_isp = 0xABCDEF;
+		fw_front_type_in_isp = 0;
 	}
 }
 
@@ -2598,8 +2612,8 @@ static int sensor_probe(struct i2c_client *client,
 		mi1040_output_format = tmp;
 		printk("mi1040 output format= %d\n", mi1040_output_format);
 	}
-	version_num_in_isp = get_fw_version_in_isp();
 
+	version_num_in_isp = get_fw_version_in_isp();
 
 	i7002a_sdev.name = I7002A_SDEV_NAME;
 	i7002a_sdev.print_name = i7002a_switch_name;
@@ -2609,8 +2623,9 @@ static int sensor_probe(struct i2c_client *client,
 	}
 	switch_set_state(&i7002a_sdev, 0);
 
-	pr_info("i7002a check version number: 0x%x\n", version_num_in_isp);
 	pr_info("i7002a front_chip_id: 0x%X\n", front_chip_id);
+	pr_info("i7002a check version number: 0x%06X\n", version_num_in_isp);
+	pr_info("i7002a fw_front_type_in_isp: 0x%02X\n", fw_front_type_in_isp);
 
 	i7002a_isp_on(0);
 
@@ -2792,14 +2807,14 @@ static ssize_t dbg_i7002a_fw_in_isp_read(struct file *file, char __user *buf, si
 
 	/* [Project id]-[FrontSensor]-[FW Version]*/
 	if (front_chip_id == SENSOR_ID_OV2720) {
-		len = snprintf(bp, dlen, "%02X-%02X-%06X\n", tegra3_get_project_id(), 1, version_num_in_isp);
+		len = snprintf(bp, dlen, "%02X-%02X-%06X-%02X\n", tegra3_get_project_id(), 1, version_num_in_isp, fw_front_type_in_isp);
 		tot += len; bp += len; dlen -= len;
 	} else if (front_chip_id == SENSOR_ID_MI1040){
 		/* mi1040 chip_id= 0x2481 */
-		len = snprintf(bp, dlen, "%02X-%02X-%06X\n", tegra3_get_project_id(), 2, version_num_in_isp);
+		len = snprintf(bp, dlen, "%02X-%02X-%06X-%02X\n", tegra3_get_project_id(), 2, version_num_in_isp, fw_front_type_in_isp);
 		tot += len; bp += len; dlen -= len;
 	} else {
-		len = snprintf(bp, dlen, "%02X-%02X-%06X\n", tegra3_get_project_id(), 0, version_num_in_isp);
+		len = snprintf(bp, dlen, "%02X-%02X-%06X-%02X\n", tegra3_get_project_id(), 0, version_num_in_isp, fw_front_type_in_isp);
 		tot += len; bp += len; dlen -= len;
 	}
 

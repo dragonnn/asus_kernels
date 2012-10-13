@@ -1541,6 +1541,39 @@ static int tegra3_pll_clk_set_rate(struct clk *c, unsigned long rate)
 		cfg.n = cfg.output_rate / cfreq;
 		cfg.cpcon = OUT_OF_TABLE_CPCON;
 
+		// for TF300TG pclk tuning
+		if(!strcmp(c->name, "pll_d") && ( tegra3_get_project_id() == TEGRA3_PROJECT_TF300TG ) ) {
+			/* config divN, divM for nearest rate */
+			unsigned long input = input_rate;
+			long output = rate;
+			int div = 1;
+			unsigned long min = 300000000;
+			int divM = 1;
+			int divN = 1;
+			printk("input=%lu, output=%ld\n", input, output);
+			for(div=1; div<=PLL_BASE_DIVM_MASK; div++)
+			{
+				unsigned long y = (output*div*2+input)/(2*input);
+				long output_temp = input*y/div;
+				long z = output_temp-output>0 ? output_temp-output : output-output_temp;
+
+				if( z < min )
+				{
+					min = z;
+					divM = div;
+					divN = y;
+				}
+				//printk("div=%d, y=%lu, output_temp=%ld, z=%ld, min=%lu, divM=%d \n", div, y, output_temp, z, min, divM);
+			}
+			unsigned long output_real = input*divN/divM;
+			printk("output_real=%lu\n", output_real);
+
+			cfg.m = divM;
+			cfg.n = divN;
+			cfg.p = 1;
+			p_div = 0;
+		}
+
 		if ((cfg.m > (PLL_BASE_DIVM_MASK >> PLL_BASE_DIVM_SHIFT)) ||
 		    (cfg.n > (PLL_BASE_DIVN_MASK >> PLL_BASE_DIVN_SHIFT)) ||
 		    (p_div > (PLL_BASE_DIVP_MASK >> PLL_BASE_DIVP_SHIFT)) ||
@@ -1944,6 +1977,14 @@ static void tegra3_periph_clk_init(struct clk *c)
 		c->parent = mux->input;
 	} else {
 		c->parent = c->inputs[0].input;
+	}
+
+	// set disp1 parent clock to pll_d_out0
+	if(!strcmp(c->name, "disp1") && ( tegra3_get_project_id() == TEGRA3_PROJECT_TF300TG )) {
+		val &= ~periph_clk_source_mask(c);
+		val |= (c->inputs[2].value << periph_clk_source_shift(c));
+		clk_writel_delay(val, c->reg);
+		c->parent = c->inputs[2].input;
 	}
 
 	if (c->flags & DIV_U71) {
