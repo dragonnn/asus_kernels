@@ -107,6 +107,7 @@ static struct regulator *cardhu_lvds_vdd_panel = NULL;
 
 static struct board_info board_info;
 static struct board_info display_board_info;
+extern bool isRecording;
 
 static tegra_dc_bl_output cardhu_bl_output_measured = {
 	0, 1, 2, 3, 4, 5, 6, 7,
@@ -162,6 +163,7 @@ static int cardhu_backlight_init(struct device *dev)
 		pr_err("bl_output array does not have 256 elements\n");
 
 	if (!is_dsi_panel()) {
+		tegra_gpio_disable(cardhu_bl_pwm);
 		ret = gpio_request(cardhu_bl_enb, "backlight_enb");
 		if (ret < 0)
 			return ret;
@@ -249,6 +251,9 @@ static int cardhu_backlight_notify(struct device *unused, int brightness)
 		/* DSIa */
 		gpio_set_value(e1506_bl_enb, !!brightness);
 	}
+
+	if(isRecording && (tegra3_get_project_id() == TEGRA3_PROJECT_TF201 || tegra3_get_project_id() == TEGRA3_PROJECT_TF500T))
+		gpio_set_value(cardhu_bl_enb, 1);
 
 	/* SD brightness is a percentage, 8-bit value. */
 	brightness = (brightness * cur_sd_brightness) / 255;
@@ -372,8 +377,10 @@ static int cardhu_panel_enable(void)
 		else
 			regulator_enable(cardhu_lvds_vdd_panel);
 	}
-	msleep(20);
 
+	if (tegra3_get_project_id()==0x4){
+		msleep(20);
+	}
 	if (tegra3_get_project_id()==0x4){
 			printk("Check power on/off for bridge IC \n");
 			ret = gpio_direction_output(TEGRA_GPIO_PBB3, 1);
@@ -433,23 +440,12 @@ static int cardhu_panel_enable(void)
 static int cardhu_panel_prepoweroff(void)
 {
 	if (tegra3_get_project_id()!=0x4 ){
-		// For TF300T EN_VDD_BL is always on, no need to control cardhu_lvds_vdd_bl
-		// But for TF300TG/TL, EN_VDD_BL is BL_EN, need to control it
-		// EE confirms that we can control it in original timing because
-		// EN_VDD_BL/LCD_BL_PWM/LCD_BL_EN pull high/low almost the same time
-		if(cardhu_lvds_vdd_bl) {
-			regulator_disable(cardhu_lvds_vdd_bl);
-			regulator_put(cardhu_lvds_vdd_bl);
-			cardhu_lvds_vdd_bl = NULL;
-		}
-		msleep(200);
-
 		if (display_board_info.board_id == BOARD_DISPLAY_PM313) {
 			gpio_set_value(pm313_lvds_shutdown, 0);
 		} else {
 			gpio_set_value(e1247_pm269_lvds_shutdown, 0);
 		}
-		msleep(10);
+		msleep(20);
 	}
 	return 0;
 }
@@ -468,7 +464,13 @@ static int cardhu_panel_disable(void)
 
 		gpio_set_value(TEGRA_GPIO_PBB3, 0);
 
-		mdelay(100);
+		if (gpio_get_value(TEGRA_GPIO_PI6)==0 ){	//panel is panasonic
+			msleep(85);
+		}
+		else {	//panel is hydis
+			msleep(10);
+		}
+
 		if(cardhu_lvds_vdd_panel) {
 			regulator_disable(cardhu_lvds_vdd_panel);
 			regulator_put(cardhu_lvds_vdd_panel);
@@ -495,6 +497,14 @@ static int cardhu_panel_disable(void)
 		regulator_put(cardhu_lvds_reg);
 		cardhu_lvds_reg = NULL;
 	}
+
+	msleep(10);
+	if(cardhu_lvds_vdd_bl) {
+		regulator_disable(cardhu_lvds_vdd_bl);
+		regulator_put(cardhu_lvds_vdd_bl);
+		cardhu_lvds_vdd_bl = NULL;
+	}
+	msleep(250);
 
 	if(cardhu_lvds_vdd_panel) {
 		regulator_disable(cardhu_lvds_vdd_panel);
@@ -1432,14 +1442,22 @@ static void cardhu_panel_early_suspend(struct early_suspend *h)
 	if (num_registered_fb > 1)
 		fb_blank(registered_fb[1], FB_BLANK_NORMAL);
 
+#ifdef CONFIG_TEGRA_CONVSERVATIVE_GOV_ON_EARLYSUPSEND
+	cpufreq_store_default_gov();
+	cpufreq_change_gov(cpufreq_conservative_gov);
+#endif
+
 #ifdef CONFIG_PM_DEBUG
-	pr_info("%sed\n", __func__);
+        pr_info("%sed\n", __func__);
 #endif
 }
 
 static void cardhu_panel_late_resume(struct early_suspend *h)
 {
 	unsigned i;
+#ifdef CONFIG_TEGRA_CONVSERVATIVE_GOV_ON_EARLYSUPSEND
+	cpufreq_restore_default_gov();
+#endif
 	for (i = 0; i < num_registered_fb; i++)
 		fb_blank(registered_fb[i], FB_BLANK_UNBLANK);
 
@@ -1467,6 +1485,9 @@ static void cardhu_panel_preinit(void)
 		cardhu_disp1_out.n_modes = ARRAY_SIZE(cardhu_panel_modes);
 		cardhu_disp1_out.enable = cardhu_panel_enable;
 		cardhu_disp1_out.disable = cardhu_panel_disable;
+		/* Set height and width in mm. */
+		cardhu_disp1_out.height = 127;
+		cardhu_disp1_out.width = 216;
 
 		cardhu_disp1_pdata.fb = &cardhu_fb_data;
 	} else {
@@ -1503,9 +1524,13 @@ static void cardhu_panel_preinit(void)
 			cardhu_dsi.n_suspend_cmd =
 				ARRAY_SIZE(dsi_suspend_cmd_1506);
 			cardhu_dsi.dsi_suspend_cmd = dsi_suspend_cmd_1506;
-			cardhu_dsi.panel_send_dc_frames = true,
+			cardhu_dsi.panel_send_dc_frames = true;
+			cardhu_dsi.suspend_aggr = DSI_HOST_SUSPEND_LV0;
 			cardhu_dsi_fb_data.xres = 720;
 			cardhu_dsi_fb_data.yres = 1280;
+			/* Set height and width in mm. */
+			cardhu_disp1_out.height = 95;
+			cardhu_disp1_out.width = 53;
 		}
 
 		cardhu_disp1_pdata.fb = &cardhu_dsi_fb_data;
@@ -1554,6 +1579,9 @@ int __init cardhu_panel_init(void)
 #else
 		cardhu_disp1_out.depth = 24;
 #endif
+		/* Set height and width in mm. */
+		cardhu_disp1_out.height = 127;
+		cardhu_disp1_out.width = 203;
 		cardhu_fb_data.xres = 1920;
 		cardhu_fb_data.yres = 1200;
 

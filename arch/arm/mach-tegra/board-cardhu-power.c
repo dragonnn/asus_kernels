@@ -150,6 +150,7 @@ static struct regulator_consumer_supply tps6591x_ldo5_supply_e1198[] = {
 static struct regulator_consumer_supply tps6591x_ldo6_supply_0[] = {
 	REGULATOR_SUPPLY("avdd_dsi_csi", NULL),
 	REGULATOR_SUPPLY("pwrdet_mipi", NULL),
+	REGULATOR_SUPPLY("vddio_hsic", NULL),
 };
 static struct regulator_consumer_supply tps6591x_ldo7_supply_0[] = {
 	REGULATOR_SUPPLY("avdd_plla_p_c_s", NULL),
@@ -198,7 +199,7 @@ TPS_PDATA_INIT(vdd2, 0,         600,  1500, 0, 1, 1, 0, -1, 0, 0, 0, 0);
 TPS_PDATA_INIT(vddctrl, 0,      600,  1400, 0, 1, 1, 0, -1, 0, 0, EXT_CTRL_EN1, 0);
 TPS_PDATA_INIT(vio,  0,         1500, 3300, 0, 1, 1, 0, -1, 0, 0, 0, 0);
 
-TPS_PDATA_INIT(ldo1, 0,         1000, 3300, tps6591x_rails(VDD_2), 0, 0, 0, -1, 0, 1, 0, 0);
+TPS_PDATA_INIT(ldo1, 0,         1000, 3300, tps6591x_rails(VDD_2), 1, 0, 0, -1, 1, 1, 0, 0);
 TPS_PDATA_INIT(ldo2, 0,         1050, 3300, tps6591x_rails(VDD_2), 0, 0, 1, -1, 0, 1, 0, 0);
 
 TPS_PDATA_INIT(ldo3, e118x,     1000, 3300, 0, 0, 0, 0, -1, 0, 0, 0, 0);
@@ -547,7 +548,10 @@ static struct regulator_consumer_supply fixed_reg_en_3v3_sys_supply[] = {
 	REGULATOR_SUPPLY("hvdd_pex_pmu", NULL),
 	REGULATOR_SUPPLY("avdd_hdmi", NULL),
 	REGULATOR_SUPPLY("vpp_fuse", NULL),
-	REGULATOR_SUPPLY("avdd_usb", NULL),
+	REGULATOR_SUPPLY("avdd_usb", "tegra-udc.0"),
+	REGULATOR_SUPPLY("avdd_usb", "tegra-ehci.0"),
+	REGULATOR_SUPPLY("avdd_usb", "tegra-ehci.1"),
+	REGULATOR_SUPPLY("avdd_usb", "tegra-ehci.2"),
 	REGULATOR_SUPPLY("vdd_ddr_rx", NULL),
 	REGULATOR_SUPPLY("vcore_nand", NULL),
 	REGULATOR_SUPPLY("hvdd_sata", NULL),
@@ -756,7 +760,7 @@ FIXED_REG(9, en_3v3_fuse_pm269,		en_3v3_fuse,		FIXED_SUPPLY(en_3v3_sys), 	0,    
 
 /* E1198/E1291 specific*/
 FIXED_REG(18, cam1_ldo_en,	cam1_ldo_en,	FIXED_SUPPLY(en_3v3_sys),	0,      0,      TEGRA_GPIO_PR6,		true,	0, 2800);
-FIXED_REG(19, cam2_ldo_en,	cam2_ldo_en,	FIXED_SUPPLY(en_3v3_sys),	0,      0,      TEGRA_GPIO_PR7,		true,	0, 2800);
+//FIXED_REG(19, cam2_ldo_en,	cam2_ldo_en,	FIXED_SUPPLY(en_3v3_sys),	0,      0,      TEGRA_GPIO_PR7,		true,	0, 2800);
 
 /* E1291 A03 specific */
 FIXED_REG(20, en_vdd_bl1_a03,	en_vdd_bl,	NULL,				0,      0,      TEGRA_GPIO_PDD2,	true,	1, 5000);
@@ -834,14 +838,12 @@ FIXED_REG_OD(17, en_vddio_vid_oc,	en_vddio_vid_oc,	FIXED_SUPPLY(en_5v0), 		0,   
 	ADD_FIXED_REG(en_3v3_sys_a04),		\
 	ADD_FIXED_REG(en_3v3_modem),		\
 	ADD_FIXED_REG(cam1_ldo_en),		\
-	ADD_FIXED_REG(cam2_ldo_en),		\
 	ADD_FIXED_REG(cam3_ldo_en),		\
 	ADD_FIXED_REG(en_vdd_com),		\
 	ADD_FIXED_REG(en_3v3_fuse_pm269),	\
 	ADD_FIXED_REG(en_3v3_emmc),		\
 	ADD_FIXED_REG(en_1v8_cam),		\
 	ADD_FIXED_REG(dis_5v_switch_e118x),	\
-	ADD_FIXED_REG(en_vbrtr),		\
 	ADD_FIXED_REG(en_usb1_vbus_oc_e118x),	\
 	ADD_FIXED_REG(en_vddio_vid_oc_pm269),
 
@@ -852,7 +854,6 @@ FIXED_REG_OD(17, en_vddio_vid_oc,	en_vddio_vid_oc,	FIXED_SUPPLY(en_5v0), 		0,   
 	ADD_FIXED_REG(en_3v3_sys),		\
 	ADD_FIXED_REG(en_3v3_modem),		\
 	ADD_FIXED_REG(cam1_ldo_en),		\
-	ADD_FIXED_REG(cam2_ldo_en),		\
 	ADD_FIXED_REG(cam3_ldo_en),		\
 	ADD_FIXED_REG(en_vdd_com),		\
 	ADD_FIXED_REG(en_3v3_fuse_pm269),	\
@@ -895,7 +896,6 @@ FIXED_REG_OD(17, en_vddio_vid_oc,	en_vddio_vid_oc,	FIXED_SUPPLY(en_5v0), 		0,   
 
 #define E1198_FIXED_REG				\
 	ADD_FIXED_REG(cam1_ldo_en),		\
-	ADD_FIXED_REG(cam2_ldo_en),		\
 	ADD_FIXED_REG(en_vddio_vid_oc),
 
 #define E1291_1198_A00_FIXED_REG		\
@@ -949,7 +949,6 @@ static struct platform_device *fixed_reg_devs_e1198_a02[] = {
 	ADD_FIXED_REG(en_vdd_bl1_a03),
 	ADD_FIXED_REG(en_vdd_bl2_a03),
 	ADD_FIXED_REG(cam1_ldo_en),
-	ADD_FIXED_REG(cam2_ldo_en),
 	ADD_FIXED_REG(en_usb1_vbus_oc_a03),
 	ADD_FIXED_REG(en_usb3_vbus_oc_a03),
 	ADD_FIXED_REG(en_vddio_vid_oc),
@@ -1154,22 +1153,27 @@ int __init cardhu_suspend_init(void)
 		if (board_info.fab == BOARD_FAB_A03)
 			cardhu_suspend_data.corereq_high = true;
 		if (board_info.fab < BOARD_FAB_A03)
-			/* post E1291-A02 revisions WAKE19/USB1-VBUS wake supported */
+			/* post E1291-A02 revisions VBUS wake supported */
 			tegra_disable_wake_source(TEGRA_WAKE_USB1_VBUS);
 		break;
 	case BOARD_E1198:
 		if (board_info.fab < BOARD_FAB_A02)
-			/* post E1198-A01 revisions WAKE19/USB1-VBUS wake supported */
+			/* post E1198-A01 revisions VBUS wake supported */
 			tegra_disable_wake_source(TEGRA_WAKE_USB1_VBUS);
 		break;
 	case BOARD_PM269:
 	case BOARD_PM305:
 	case BOARD_PM311:
 		break;
-	case BOARD_E1187:
-	case BOARD_E1186:
 	case BOARD_E1256:
 	case BOARD_E1257:
+		cardhu_suspend_data.cpu_timer = 5000;
+		cardhu_suspend_data.cpu_off_timer = 5000;
+		break;
+	case BOARD_E1187:
+	case BOARD_E1186:
+		/* VBUS repeated wakeup seen on older E1186 boards */
+		tegra_disable_wake_source(TEGRA_WAKE_USB1_VBUS);
 		cardhu_suspend_data.cpu_timer = 5000;
 		cardhu_suspend_data.cpu_off_timer = 5000;
 		break;
@@ -1194,7 +1198,7 @@ int __init cardhu_edp_init(void)
 		tegra_init_cpu_edp_limits(5000);
 	else if(TEGRA3_PROJECT_TF300T == project_id || TEGRA3_PROJECT_TF300TG == project_id || TEGRA3_PROJECT_TF300TL == project_id || TEGRA3_PROJECT_TF500T == project_id)
 		tegra_init_cpu_edp_limits(6000);
-	else if(TEGRA3_PROJECT_TF700T == project_id)
+	else if(TEGRA3_PROJECT_TF700T == project_id || TEGRA3_PROJECT_P1801 == project_id)
 		tegra_init_cpu_edp_limits(10000);
 
 	return 0;

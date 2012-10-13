@@ -20,6 +20,8 @@
 #include <linux/gpio.h>
 
 #include <mach/board-cardhu-misc.h>
+#include <mach/pinmux.h>
+#include <mach/pinmux-t3.h>
 #include "gpio-names.h"
 #include "fuse.h"
 
@@ -32,11 +34,32 @@ static struct kobj_attribute module##_attr = { \
 	.show = module##_show, \
 }
 
-/*
- *PCBID is composed of nine GPIO pins predefined by
- *HW schematic of Tegra3-series
- */
-unsigned int cardhu_pcbid;
+
+/* PCBID is composed of ten GPIO pins */
+static unsigned int cardhu_pcbid;
+
+static const struct pins cardhu_pcbid_pins[] = {
+	{TEGRA_GPIO_PR4, TEGRA_PINGROUP_KB_ROW4, "PCB_ID0", false},
+	{TEGRA_GPIO_PR5, TEGRA_PINGROUP_KB_ROW5, "PCB_ID1", false},
+	{TEGRA_GPIO_PQ4, TEGRA_PINGROUP_KB_COL4, "PCB_ID2", false},
+	{TEGRA_GPIO_PQ7, TEGRA_PINGROUP_KB_COL7, "PCB_ID3", false},
+	{TEGRA_GPIO_PR2, TEGRA_PINGROUP_KB_ROW2, "PCB_ID4", false},
+	{TEGRA_GPIO_PQ5, TEGRA_PINGROUP_KB_COL5, "PCB_ID5", false},
+	{TEGRA_GPIO_PJ0, TEGRA_PINGROUP_GMI_CS0_N, "PCB_ID6", false},
+	{TEGRA_GPIO_PJ2, TEGRA_PINGROUP_GMI_CS1_N, "PCB_ID7", false},
+	{TEGRA_GPIO_PK3, TEGRA_PINGROUP_GMI_CS2_N, "PCB_ID8", false},
+	{TEGRA_GPIO_PC7, TEGRA_PINGROUP_GMI_WP_N, "PCB_ID9", true},
+};
+
+/* PROJECTID is composed of four GPIO pins */
+static unsigned int cardhu_extended_projectid;
+
+static const struct pins cardhu_extended_projectid_pins[] = {
+	{TEGRA_GPIO_PK2, TEGRA_PINGROUP_GMI_CS4_N, "PROJECT_ID0", true},
+	{TEGRA_GPIO_PI3, TEGRA_PINGROUP_GMI_CS6_N, "PROJECT_ID1", true},
+	{TEGRA_GPIO_PI7, TEGRA_PINGROUP_GMI_WAIT, "PROJECT_ID2", true},
+	{TEGRA_GPIO_PK4, TEGRA_PINGROUP_GMI_CS3_N, "PROJECT_ID3", true},
+};
 
 static const char *tegra3_project_name[TEGRA3_PROJECT_MAX] = {
 	[TEGRA3_PROJECT_TF201] = "TF201",
@@ -45,12 +68,17 @@ static const char *tegra3_project_name[TEGRA3_PROJECT_MAX] = {
 	[TEGRA3_PROJECT_TF300TG] = "TF300TG",
 	[TEGRA3_PROJECT_TF700T] = "TF700T",
 	[TEGRA3_PROJECT_TF300TL] = "TF300TL",
-	[TEGRA3_PROJECT_ReserveB] = "unknown",
+	[TEGRA3_PROJECT_EXTENSION] = "Extension",
 	[TEGRA3_PROJECT_TF500T] = "TF500T",
+	[TEGRA3_PROJECT_ME301T] = "ME301T",
+	[TEGRA3_PROJECT_ME301TL] = "ME301TL",
+	[TEGRA3_PROJECT_ME371T] = "ME371T",
 };
 
 static unsigned int tegra3_project_name_index = TEGRA3_PROJECT_INVALID;
 static bool tegra3_misc_enabled = false;
+
+static unsigned long long tegra3_chip_uid = 0;
 
 static int __init tegra3_productid_setup(char *id)
 {
@@ -76,11 +104,16 @@ const char *tegra3_get_project_name(void)
 
 	if (tegra3_misc_enabled) {
 		project_id = HW_DRF_VAL(TEGRA3_DEVKIT, MISC_HW,
+
 						PROJECT, cardhu_pcbid);
+		if (project_id == TEGRA3_PROJECT_EXTENSION)
+			project_id = 8 + HW_DRF_VAL(TEGRA3_DEVKIT, MISC_HW,
+				EXTENDED_PROJECT, cardhu_extended_projectid);
 
 		/* WARN if project id was not matched with PCBID */
 		WARN_ONCE(project_id != tegra3_project_name_index,
-			"[MISC]: project ID in kernel cmdline was not matched with PCBID\n");
+			"[MISC]: project ID in kernel cmdline was not matched"
+			"with PCBID\n");
 	}
 	else {
 		pr_info("[MISC]: adopt kernel cmdline prior to %s ready.\n",
@@ -100,16 +133,22 @@ unsigned int tegra3_get_project_id(void)
 		project_id = HW_DRF_VAL(TEGRA3_DEVKIT, MISC_HW,
 						PROJECT, cardhu_pcbid);
 
+		if (project_id == TEGRA3_PROJECT_EXTENSION)
+			project_id = 8 + HW_DRF_VAL(TEGRA3_DEVKIT, MISC_HW,
+				EXTENDED_PROJECT, cardhu_extended_projectid);
+
 		/* WARN if project id was not matched with PCBID */
 		WARN_ONCE(project_id != tegra3_project_name_index,
-			"[MISC]: project ID in kernel cmdline was not matched with PCBID\n");
+			"[MISC]: project ID in kernel cmdline was not matched"
+			"with PCBID\n");
 	}
 	else {
 		pr_info("[MISC]: adopt kernel cmdline prior to %s ready.\n",
 				__func__);
 	}
+	return (project_id < TEGRA3_PROJECT_MAX) ?
+		project_id : TEGRA3_PROJECT_INVALID;
 
-	return (project_id < TEGRA3_PROJECT_MAX) ? project_id : TEGRA3_PROJECT_INVALID;
 }
 EXPORT_SYMBOL(tegra3_get_project_id);
 
@@ -123,8 +162,8 @@ unsigned int tegra3_query_touch_module_pcbid(void)
 	if ((project == TEGRA3_PROJECT_TF300T) ||
 		(project == TEGRA3_PROJECT_TF300TG) ||
 		(project == TEGRA3_PROJECT_TF300TL)) {
-		pr_err("[MISC]: %s is not supported on %s.\n", __func__,
-			tegra3_get_project_name());
+		pr_err("[MISC]: %s is not supported on %02x.\n", __func__,
+			tegra3_get_project_id());
 		return ret;
 	}
 
@@ -157,8 +196,8 @@ unsigned int tegra3_query_audio_codec_pcbid(void)
 	/* Check if running target platform */
 	if ((project == TEGRA3_PROJECT_TF201) ||
 		(project == TEGRA3_PROJECT_TF700T)) {
-		pr_err("[MISC]: %s is not supported on %s.\n", __func__,
-			tegra3_get_project_name());
+		pr_err("[MISC]: %s is not supported on %02x.\n", __func__,
+			tegra3_get_project_id());
 		return ret;
 	}
 
@@ -181,8 +220,8 @@ unsigned int tegra3_query_pcba_revision_pcbid(void)
 
 	/* Check if running target platform */
 	if (project != TEGRA3_PROJECT_TF700T) {
-		pr_err("[MISC]: %s is not supported on %s.\n", __func__,
-			tegra3_get_project_name());
+		pr_err("[MISC]: %s is not supported on %02x.\n", __func__,
+			tegra3_get_project_id());
 		return ret;
 	}
 
@@ -200,8 +239,8 @@ unsigned int tegra3_query_wifi_module_pcbid(void)
 
 	/* Check if running target platform is valid */
 	if (project == TEGRA3_PROJECT_INVALID) {
-		pr_err("[MISC]: %s is not supported on %s.\n", __func__,
-			tegra3_get_project_name());
+		pr_err("[MISC]: %s is not supported on %02x.\n", __func__,
+			tegra3_get_project_id());
 		return ret;
 	}
 
@@ -217,7 +256,11 @@ static ssize_t cardhu_chipid_show(struct kobject *kobj,
 {
 	char *s = buf;
 
-	s += sprintf(s, "%016llx\n", tegra_chip_uid());
+	if (!tegra3_chip_uid)
+		s += sprintf(s, "%016llx\n", tegra_chip_uid());
+	else
+		s += sprintf(s, "%016llx\n", tegra3_chip_uid);
+
 	return (s - buf);
 }
 
@@ -227,9 +270,14 @@ static ssize_t cardhu_pcbid_show(struct kobject *kobj,
 	char *s = buf;
 	int i;
 
-	for (i = TEGRA3_DEVKIT_MISC_PCBID_NUM; i > 0; i--) {
-		s += sprintf(s, "%c", cardhu_pcbid & (1 << (i - 1)) ? '1' : '0');
-	}
+	for (i = ARRAY_SIZE(cardhu_extended_projectid_pins); i > 0; i--)
+		s += sprintf(s, "%c",
+			cardhu_extended_projectid & (1 << (i - 1)) ? '1' : '0');
+
+	for (i = ARRAY_SIZE(cardhu_pcbid_pins); i > 0; i--)
+		s += sprintf(s, "%c",
+			cardhu_pcbid & (1 << (i - 1)) ? '1' : '0');
+
 	s += sprintf(s, "b\n");
 	return (s - buf);
 }
@@ -271,127 +319,63 @@ static struct attribute_group attr_group = {
 
 static struct platform_device *cardhu_misc_device;
 
-static int pcbid_init(void)
+static int board_pins_init(
+	const struct pins *board_pins,
+	unsigned int pin_size,
+	unsigned int *pin_value)
 {
-	int ret;
+	int ret = 0, i = 0;
 
-	ret = gpio_request(TEGRA_GPIO_PR4, "PCB_ID0");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		return ret;
-        }
 
-	ret = gpio_request(TEGRA_GPIO_PR5, "PCB_ID1");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		return ret;
-        }
+	for (i = 0; i < pin_size; i++) {
+		ret = gpio_request(board_pins[i].gpio, board_pins[i].label);
 
-	ret = gpio_request(TEGRA_GPIO_PQ4, "PCB_ID2");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		return ret;
-        }
-
-	ret = gpio_request(TEGRA_GPIO_PQ7, "PCB_ID3");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		return ret;
-        }
-
-	ret = gpio_request(TEGRA_GPIO_PR2, "PCB_ID4");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		gpio_free(TEGRA_GPIO_PR2);
-		return ret;
-        }
-
-	ret = gpio_request(TEGRA_GPIO_PQ5, "PCB_ID5");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		gpio_free(TEGRA_GPIO_PR2);
-		gpio_free(TEGRA_GPIO_PQ5);
-		return ret;
-        }
-
-	ret = gpio_request(TEGRA_GPIO_PJ0, "PCB_ID6");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		gpio_free(TEGRA_GPIO_PR2);
-		gpio_free(TEGRA_GPIO_PQ5);
-		gpio_free(TEGRA_GPIO_PJ0);
-		return ret;
+		if (ret) {
+			while (i >= 0) {
+				gpio_free(board_pins[i].gpio);
+				i--;
+			}
+			return ret;
+		}
+		gpio_direction_input(board_pins[i].gpio);
+		*pin_value |= gpio_get_value(board_pins[i].gpio) << i;
 	}
 
-	ret = gpio_request(TEGRA_GPIO_PJ2, "PCB_ID7");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		gpio_free(TEGRA_GPIO_PR2);
-		gpio_free(TEGRA_GPIO_PQ5);
-		gpio_free(TEGRA_GPIO_PJ0);
-		gpio_free(TEGRA_GPIO_PJ2);
-		return ret;
-        }
-
-	ret = gpio_request(TEGRA_GPIO_PK3, "PCB_ID8");
-	if (ret) {
-		gpio_free(TEGRA_GPIO_PR4);
-		gpio_free(TEGRA_GPIO_PR5);
-		gpio_free(TEGRA_GPIO_PQ4);
-		gpio_free(TEGRA_GPIO_PQ7);
-		gpio_free(TEGRA_GPIO_PR2);
-		gpio_free(TEGRA_GPIO_PQ5);
-		gpio_free(TEGRA_GPIO_PJ0);
-		gpio_free(TEGRA_GPIO_PJ2);
-		gpio_free(TEGRA_GPIO_PK3);
-		return ret;
-        }
-
-	gpio_direction_input(TEGRA_GPIO_PR4);
-	gpio_direction_input(TEGRA_GPIO_PR5);
-	gpio_direction_input(TEGRA_GPIO_PQ4);
-	gpio_direction_input(TEGRA_GPIO_PQ7);
-	gpio_direction_input(TEGRA_GPIO_PR2);
-	gpio_direction_input(TEGRA_GPIO_PQ5);
-	gpio_direction_input(TEGRA_GPIO_PJ0);
-	gpio_direction_input(TEGRA_GPIO_PJ2);
-	gpio_direction_input(TEGRA_GPIO_PK3);
-
-	cardhu_pcbid = (gpio_get_value(TEGRA_GPIO_PK3) << 8) |
-			(gpio_get_value(TEGRA_GPIO_PJ2) << 7) |
-			(gpio_get_value(TEGRA_GPIO_PJ0) << 6) |
-			(gpio_get_value(TEGRA_GPIO_PQ5) << 5) |
-			(gpio_get_value(TEGRA_GPIO_PR2) << 4) |
-			(gpio_get_value(TEGRA_GPIO_PQ7) << 3) |
-			(gpio_get_value(TEGRA_GPIO_PQ4) << 2) |
-			(gpio_get_value(TEGRA_GPIO_PR5) << 1) |
-			gpio_get_value(TEGRA_GPIO_PR4);
 	return 0;
 }
 
-int __init cardhu_misc_init(void)
+static void board_pins_reset(
+	const struct pins *board_pins,
+	unsigned int pin_size)
+{
+	int i = 0;
+	enum tegra3_project project_id = tegra3_get_project_id();
+
+	for (i = 0; i < pin_size; i++) {
+		if (board_pins[i].extended_pins) {
+			/* set no-pull */
+			tegra_pinmux_set_pullupdown(board_pins[i].pingroup,
+				TEGRA_PUPD_NORMAL);
+			if (project_id < 8)
+				/* disable input buffer */
+				tegra_pinmux_set_io(board_pins[i].pingroup,
+					TEGRA_PIN_OUTPUT);
+				/* release GPIO related registration */
+				gpio_free(board_pins[i].gpio);
+		}
+	}
+}
+
+int __init cardhu_misc_init(unsigned long long uid)
 {
 	int ret = 0;
 
 	pr_debug("%s: start\n", __func__);
+
+	if (!uid)
+		pr_err("[MISC]: chip unique id is unavailable.\n");
+	else
+		tegra3_chip_uid = uid;
 
 	// create a platform device
 	cardhu_misc_device = platform_device_alloc("cardhu_misc", -1);
@@ -414,10 +398,20 @@ int __init cardhu_misc_init(void)
 		goto fail_sysfs;
 	}
 
-	// acquire pcb_id info
-	ret = pcbid_init();
+	/* acquire pcb_id info */
+	ret = board_pins_init(cardhu_pcbid_pins,
+		ARRAY_SIZE(cardhu_pcbid_pins), &cardhu_pcbid);
 	if (ret) {
 		pr_err("[MISC]: cannot acquire PCB_ID info.\n");
+		goto fail_sysfs;
+	}
+
+	/* acquire project_id info */
+	ret = board_pins_init(cardhu_extended_projectid_pins,
+		ARRAY_SIZE(cardhu_extended_projectid_pins),
+		&cardhu_extended_projectid);
+	if (ret) {
+		pr_err("[MISC]: cannot acquire PROJECT_ID info.\n");
 		goto fail_sysfs;
 	}
 
@@ -434,4 +428,28 @@ fail_platform_add_device:
 
 fail_platform_device:
 	return ret;
+}
+
+int __init cardhu_misc_reset(void)
+{
+	enum tegra3_project project_id = tegra3_get_project_id();
+
+	/* reset pcb_id pins */
+	board_pins_reset(cardhu_pcbid_pins,
+		ARRAY_SIZE(cardhu_pcbid_pins));
+
+	/* reset project_id pins */
+	board_pins_reset(cardhu_extended_projectid_pins,
+		ARRAY_SIZE(cardhu_extended_projectid_pins));
+
+	/* reset GMI_CS4_N to specific state for ELAN touch IC on TF700T */
+	if (project_id == TEGRA3_PROJECT_TF700T) {
+		/* set pull-up */
+		tegra_pinmux_set_pullupdown(TEGRA_PINGROUP_GMI_CS4_N,
+			TEGRA_PUPD_PULL_UP);
+		/* enable output buffer */
+		tegra_pinmux_set_tristate(TEGRA_PINGROUP_GMI_CS4_N,
+			TEGRA_TRI_NORMAL);
+	}
+
 }

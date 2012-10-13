@@ -1,7 +1,7 @@
 /*
  * arch/arm/mach-tegra/board-enterprise.c
  *
- * Copyright (c) 2011-2012, NVIDIA Corporation.
+ * Copyright (c) 2011-2012, NVIDIA CORPORATION. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -48,6 +48,7 @@
 #include <mach/pinmux.h>
 #include <mach/iomap.h>
 #include <mach/io.h>
+#include <mach/io_dpd.h>
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 #include <mach/usb_phy.h>
@@ -181,7 +182,6 @@ static __initdata struct tegra_clk_init_table enterprise_clk_init_table[] = {
 	{ "blink",	"clk_32k",	32768,		true},
 	{ "i2s0",	"pll_a_out0",	0,		false},
 	{ "i2s1",	"pll_a_out0",	0,		false},
-	{ "i2s2",	"pll_a_out0",	0,		false},
 	{ "i2s3",	"pll_a_out0",	0,		false},
 	{ "spdif_out",	"pll_a_out0",	0,		false},
 	{ "d_audio",	"clk_m",	12000000,	false},
@@ -194,6 +194,18 @@ static __initdata struct tegra_clk_init_table enterprise_clk_init_table[] = {
 	{ "audio3",	"i2s3_sync",	0,		false},
 	{ "vi",		"pll_p",	0,		false},
 	{ "vi_sensor",	"pll_p",	0,		false},
+	{ NULL,		NULL,		0,		0},
+};
+
+static __initdata struct tegra_clk_init_table enterprise_clk_i2s2_table[] = {
+	/* name		parent		rate		enabled */
+	{ "i2s2",	"pll_a_out0",	0,		false},
+	{ NULL,		NULL,		0,		0},
+};
+
+static __initdata struct tegra_clk_init_table enterprise_clk_i2s4_table[] = {
+	/* name		parent		rate		enabled */
+	{ "i2s4",	"pll_a_out0",	0,		false},
 	{ NULL,		NULL,		0,		0},
 };
 
@@ -466,8 +478,6 @@ static void __init enterprise_uart_init(void)
 				ARRAY_SIZE(enterprise_uart_devices));
 }
 
-
-
 static struct resource tegra_rtc_resources[] = {
 	[0] = {
 		.start = TEGRA_RTC_BASE,
@@ -499,16 +509,26 @@ static struct tegra_asoc_platform_data enterprise_audio_pdata = {
 	.gpio_hp_mute		= -1,
 	.gpio_int_mic_en	= -1,
 	.gpio_ext_mic_en	= -1,
-	.debounce_time_hp = -1,
+	.debounce_time_hp	= -1,
 	/*defaults for Enterprise board*/
-	.audio_port_id		= {
-		[HIFI_CODEC] = 0,
-		[BASEBAND] = 2,
-		[BT_SCO] = 3,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+		.sample_size	= 16,
 	},
-	.baseband_param		= {
-		.rate = 8000,
-		.channels = 1,
+	.i2s_param[BASEBAND]	= {
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+		.sample_size	= 16,
+		.rate		= 8000,
+		.channels	= 1,
+	},
+	.i2s_param[BT_SCO]	= {
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+		.sample_size	= 16,
 	},
 };
 
@@ -527,15 +547,25 @@ static struct tegra_asoc_platform_data enterprise_audio_aic326x_pdata = {
 	.gpio_int_mic_en	= -1,
 	.gpio_ext_mic_en	= -1,
 	/*defaults for Verbier-Enterprise (E1197) board with TI AIC326X codec*/
-	.audio_port_id		= {
-		[HIFI_CODEC] = 0,
-		[BASEBAND] = 2,
-		[BT_SCO] = 3,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+		.sample_size	= 16,
 	},
-	.baseband_param		= {
-		.rate = 8000,
-		.channels = 1,
-		.bit_format = TEGRA_DAIFMT_DSP_A,
+	.i2s_param[BASEBAND]	= {
+		.audio_port_id	= 2,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+		.sample_size	= 16,
+		.rate		= 8000,
+		.channels	= 1,
+	},
+	.i2s_param[BT_SCO]	= {
+		.sample_size	= 16,
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
 	},
 };
 
@@ -684,7 +714,7 @@ static void enterprise_usb_hsic_post_phy_off(void)
 {
 	pr_debug("%s\n", __func__);
 #ifdef CONFIG_TEGRA_BB_XMM_POWER
-	baseband_xmm_set_power_status(BBXMM_PS_L2);
+	baseband_xmm_set_power_status(BBXMM_PS_L3);
 #endif
 }
 
@@ -721,6 +751,7 @@ static struct tegra_usb_platform_data tegra_ehci2_hsic_xmm_pdata = {
 static struct tegra_usb_platform_data tegra_udc_pdata = {
 	.port_otg = true,
 	.has_hostpc = true,
+	.builtin_host_disabled = true,
 	.phy_intf = TEGRA_USB_PHY_INTF_UTMI,
 	.op_mode = TEGRA_USB_OPMODE_DEVICE,
 	.u_data.dev = {
@@ -829,7 +860,6 @@ static struct platform_device *enterprise_audio_devices[] __initdata = {
 	&tegra_dam_device2,
 	&tegra_i2s_device0,
 	&tegra_i2s_device1,
-	&tegra_i2s_device2,
 	&tegra_i2s_device3,
 	&tegra_spdif_device,
 	&spdif_dit_device,
@@ -847,7 +877,14 @@ static void enterprise_audio_init(void)
 	tegra_get_board_info(&board_info);
 
 	if (board_info.board_id == BOARD_E1197)
-		enterprise_audio_pdata.audio_port_id[HIFI_CODEC] = 1;
+		enterprise_audio_pdata.i2s_param[HIFI_CODEC].audio_port_id = 1;
+	else if (board_info.fab == BOARD_FAB_A04) {
+		enterprise_audio_pdata.i2s_param[BASEBAND].audio_port_id = 4;
+		platform_device_register(&tegra_i2s_device4);
+	} else {
+		enterprise_audio_pdata.i2s_param[BASEBAND].audio_port_id = 2;
+		platform_device_register(&tegra_i2s_device2);
+	}
 
 	platform_add_devices(enterprise_audio_devices,
 			ARRAY_SIZE(enterprise_audio_devices));
@@ -958,6 +995,13 @@ static void enterprise_nfc_init(void)
 
 static void __init tegra_enterprise_init(void)
 {
+	struct board_info board_info;
+	tegra_get_board_info(&board_info);
+	if (board_info.fab == BOARD_FAB_A04)
+		tegra_clk_init_from_table(enterprise_clk_i2s4_table);
+	else
+		tegra_clk_init_from_table(enterprise_clk_i2s2_table);
+
 	tegra_thermal_init(&thermal_data,
 				throttle_list,
 				ARRAY_SIZE(throttle_list));
@@ -969,6 +1013,7 @@ static void __init tegra_enterprise_init(void)
 	platform_add_devices(enterprise_devices, ARRAY_SIZE(enterprise_devices));
 	tegra_ram_console_debug_init();
 	enterprise_regulator_init();
+	tegra_io_dpd_init();
 	enterprise_sdhci_init();
 #ifdef CONFIG_TEGRA_EDP_LIMITS
 	enterprise_edp_init();

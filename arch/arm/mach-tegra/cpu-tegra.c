@@ -7,7 +7,7 @@
  *	Colin Cross <ccross@google.com>
  *	Based on arch/arm/plat-omap/cpu-omap.c, (C) 2005 Nokia Corporation
  *
- * Copyright (C) 2010-2012 NVIDIA Corporation
+ * Copyright (C) 2010-2012 NVIDIA CORPORATION. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -56,7 +56,6 @@
 unsigned int power_mode_table[SYSTEM_MODE_END] = {1000000,1200000,1400000};
 
 #define CAMERA_ENABLE_EMC_MINMIAM_RATE (667000000)
-#define EMC_MINMIAM_RATE (204000000)
 /* tegra throttling and edp governors require frequencies in the table
    to be in ascending order */
 static struct cpufreq_frequency_table *freq_table;
@@ -507,12 +506,12 @@ int tegra_edp_update_thermal_zone(int temperature)
 
 	/* Update cpu rate if cpufreq (at least on cpu0) is already started;
 	   alter cpu dvfs table for this thermal zone if necessary */
-	tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, true);
+	tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, true, 0);
 	if (target_cpu_speed[0]) {
 		edp_update_limit();
 		tegra_cpu_set_speed_cap(NULL);
 	}
-	tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, false);
+	tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, false, 0);
 	mutex_unlock(&tegra_cpu_lock);
 
 	return ret;
@@ -586,31 +585,31 @@ static int tegra_cpu_edp_notify(
 	case CPU_UP_PREPARE:
 		mutex_lock(&tegra_cpu_lock);
 		cpu_set(cpu, edp_cpumask);
-		tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, true);
 		edp_update_limit();
 
 		cpu_speed = tegra_getspeed(0);
 		new_speed = edp_governor_speed(cpu_speed);
 		if (new_speed < cpu_speed) {
 			ret = tegra_cpu_set_speed_cap(NULL);
-			if (ret) {
-				cpu_clear(cpu, edp_cpumask);
-				edp_update_limit();
-			}
-
-			printk(KERN_DEBUG "tegra CPU:%sforce EDP limit %u kHz"
+			printk(KERN_DEBUG "cpu-tegra:%sforce EDP limit %u kHz"
 				"\n", ret ? " failed to " : " ", new_speed);
 		}
-		tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, false);
+		if (!ret)
+			ret = tegra_cpu_dvfs_alter(
+				edp_thermal_index, &edp_cpumask, false, event);
+		if (ret) {
+			cpu_clear(cpu, edp_cpumask);
+			edp_update_limit();
+		}
 		mutex_unlock(&tegra_cpu_lock);
 		break;
 	case CPU_DEAD:
 		mutex_lock(&tegra_cpu_lock);
 		cpu_clear(cpu, edp_cpumask);
-		tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, true);
+		tegra_cpu_dvfs_alter(
+			edp_thermal_index, &edp_cpumask, true, event);
 		edp_update_limit();
 		tegra_cpu_set_speed_cap(NULL);
-		tegra_cpu_dvfs_alter(edp_thermal_index, &edp_cpumask, false);
 		mutex_unlock(&tegra_cpu_lock);
 		break;
 	}
@@ -1014,12 +1013,6 @@ void rebuild_max_freq_table(max_rate)
 
 static int tegra_cpu_init(struct cpufreq_policy *policy)
 {
-	struct clk *c=NULL;
-	unsigned long  cpu_emc_cur_rate = 0;
-	unsigned long  emc_cur_rate = 0;
-
-	c=tegra_get_clock_by_name("emc");
-
 	if (policy->cpu >= CONFIG_NR_CPUS)
 		return -EINVAL;
 
@@ -1031,24 +1024,6 @@ static int tegra_cpu_init(struct cpufreq_policy *policy)
 	if (IS_ERR(emc_clk)) {
 		clk_put(cpu_clk);
 		return PTR_ERR(emc_clk);
-	}
-
-	if(!camera_enable)
-	{
-		cpu_emc_cur_rate = clk_get_rate(emc_clk);
-		emc_cur_rate = clk_get_rate(c);
-		printk(" %s : emc_clk->min_rate to 204M\n", __func__);
-		emc_clk->min_rate=EMC_MINMIAM_RATE;
-		c->min_rate=EMC_MINMIAM_RATE;
-
-		if(cpu_emc_cur_rate < emc_clk->min_rate )
-		{
-			clk_set_rate(emc_clk, EMC_MINMIAM_RATE);
-		}
-		if(emc_cur_rate < c->min_rate )
-		{
-			clk_set_rate(c, EMC_MINMIAM_RATE);
-		}
 	}
 
 	clk_enable(emc_clk);

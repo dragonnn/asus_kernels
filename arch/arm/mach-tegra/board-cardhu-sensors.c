@@ -77,6 +77,7 @@
 #include "cpu-tegra.h"
 
 #include <mach/board-cardhu-misc.h>
+#include <linux/smb347-charger.h>
 
 #if 0 //WK: Disable NV's camera code
 static struct regulator *cardhu_1v8_cam1 = NULL;
@@ -1276,6 +1277,18 @@ static struct i2c_board_info cardhu_i2c4_bq27510_board_info[] = {
 	},
 };
 
+static struct i2c_board_info cardhu_i2c4_bq27541_board_info[] = {
+	{
+		I2C_BOARD_INFO("bq27541-battery", 0x55),
+	},
+};
+
+static struct i2c_board_info grouper_i2c4_smb347_board_info[] = {
+	{
+		I2C_BOARD_INFO("smb347", 0x6a),
+	},
+};
+
 static struct i2c_board_info cardhu_i2c4_pad_bat_board_info[] = {
 	{
 		I2C_BOARD_INFO("pad-battery", 0xb),
@@ -1692,6 +1705,7 @@ static void kxtj9_init(void)
 int __init cardhu_sensors_init(void)
 {
 	int err;
+	int ret = 0;
 	u32 project_info = tegra3_get_project_id();
 
 	tegra_get_board_info(&board_info);
@@ -1765,15 +1779,31 @@ int __init cardhu_sensors_init(void)
 		i2c_register_board_info(4, cardhu_i2c4_bq27510_board_info,
 			ARRAY_SIZE(cardhu_i2c4_bq27510_board_info));
 	else
-		i2c_register_board_info(4, cardhu_i2c4_pad_bat_board_info,
-			ARRAY_SIZE(cardhu_i2c4_pad_bat_board_info));
+	{
+		if(TEGRA3_PROJECT_ME301T == project_info)
+		{
+			ret = i2c_register_board_info(4, grouper_i2c4_smb347_board_info,
+			ARRAY_SIZE(grouper_i2c4_smb347_board_info));
+			printk("smb347 i2c_register_board_info, ret = %d\n", ret);
+
+			ret = i2c_register_board_info(4, cardhu_i2c4_bq27541_board_info,
+				ARRAY_SIZE(cardhu_i2c4_bq27541_board_info));
+			printk("bq27510 i2c_register_board_info, ret = %d\n", ret);
+		}
+		else
+		{
+			i2c_register_board_info(4, cardhu_i2c4_pad_bat_board_info,
+				ARRAY_SIZE(cardhu_i2c4_pad_bat_board_info));
+		}
+	}
 
 	err = cardhu_nct1008_init();
 	if (err)
 		return err;
 
-	i2c_register_board_info(4, cardhu_i2c4_nct1008_board_info,
+	ret = i2c_register_board_info(4, cardhu_i2c4_nct1008_board_info,
 		ARRAY_SIZE(cardhu_i2c4_nct1008_board_info));
+	printk("nct1008 i2c_register_board_info, ret = %d\n", ret);
 
 	if (project_info == TEGRA3_PROJECT_TF500T)
 	{

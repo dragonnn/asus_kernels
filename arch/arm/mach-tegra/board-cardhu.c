@@ -2,6 +2,7 @@
  * arch/arm/mach-tegra/board-cardhu.c
  *
  * Copyright (c) 2011-2012, NVIDIA Corporation.  All rights reserved.
+ * Copyright (c) 2011-2012, NVIDIA Corporation.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -51,12 +52,14 @@
 #include <sound/wm8903.h>
 #include <sound/max98095.h>
 #include <media/tegra_dtv.h>
+#include <media/tegra_camera.h>
 
 #include <mach/clk.h>
 #include <mach/iomap.h>
 #include <mach/irqs.h>
 #include <mach/pinmux.h>
 #include <mach/iomap.h>
+#include <mach/io_dpd.h>
 #include <mach/io.h>
 #include <mach/i2s.h>
 #include <mach/tegra_asoc_pdata.h>
@@ -226,7 +229,7 @@ static __initdata struct tegra_clk_init_table cardhu_clk_init_table[] = {
 	{ "pll_m",	NULL,		0,		false},
 	{ "hda",	"pll_p",	108000000,	false},
 	{ "hda2codec_2x","pll_p",	48000000,	false},
-	{ "pwm",	"pll_p",	3187500,	false},
+	{ "pwm",	"pll_p",	6375000,	false},
 	{ "blink",	"clk_32k",	32768,		true},
 	{ "i2s0",	"pll_a_out0",	0,		false},
 	{ "i2s1",	"pll_a_out0",	0,		false},
@@ -500,6 +503,10 @@ static void cardhu_i2c_init(void)
 	} else {
 		tegra_i2c_device3.dev.platform_data = &cardhu_i2c3_platform_data;
 	}
+
+	if (project_info == TEGRA3_PROJECT_P1801)
+		cardhu_i2c4_platform_data.bus_clk_rate[0] = 33000;
+
 	tegra_i2c_device4.dev.platform_data = &cardhu_i2c4_platform_data;
 	tegra_i2c_device5.dev.platform_data = &cardhu_i2c5_platform_data;
 
@@ -513,7 +520,10 @@ static void cardhu_i2c_init(void)
 	//i2c_register_board_info(4, &cardhu_codec_max98095_info, 1);
 	//i2c_register_board_info(4, &cardhu_codec_aic326x_info, 1);
 
-	i2c_register_board_info(1, cardhu_i2c_asuspec_info, ARRAY_SIZE(cardhu_i2c_asuspec_info));
+	if(project_info != TEGRA3_PROJECT_ME301T)
+	{
+		i2c_register_board_info(1, cardhu_i2c_asuspec_info, ARRAY_SIZE(cardhu_i2c_asuspec_info));
+	}
 	if(project_info == TEGRA3_PROJECT_TF201 || project_info == TEGRA3_PROJECT_TF300TG ||
 		project_info == TEGRA3_PROJECT_TF700T || project_info == TEGRA3_PROJECT_TF300TL)
 		i2c_register_board_info(4, &rt5631_board_info, 1);
@@ -581,6 +591,15 @@ static void __init uart_debug_init(void)
 
 	pr_info("Selecting %s as the debug port\n",
 		uart_names[debug_port_id]);
+#ifdef CONFIG_TEGRA_IRDA
+	if ((board_info.board_id == BOARD_E1186) ||
+		(board_info.board_id == BOARD_E1198)) {
+		if (debug_port_id == 1) {
+			cardhu_irda_pdata.is_irda = false;
+			pr_err("UARTB is not available for IrDA\n");
+		}
+	}
+#endif
 
 	debug_uart_clk = clk_get_sys("serial8250.0",
 					uart_names[debug_port_id]);
@@ -597,6 +616,9 @@ static void __init cardhu_uart_init(void)
 {
 	struct clk *c;
 	int i;
+	struct board_info board_info;
+
+	tegra_get_board_info(&board_info);
 
 	for (i = 0; i < ARRAY_SIZE(uart_parent_clk); ++i) {
 		c = tegra_get_clock_by_name(uart_parent_clk[i].name);
@@ -643,15 +665,43 @@ static void __init cardhu_uart_init(void)
 
 	tegra_serial_debug_init(debug_uart_port_base, debug_uart_port_irq,
 				debug_uart_clk, -1, -1, false);
+#ifdef CONFIG_TEGRA_IRDA
+	if (((board_info.board_id == BOARD_E1186) ||
+		(board_info.board_id == BOARD_E1198)) &&
+			cardhu_irda_pdata.is_irda) {
+		cardhu_irda_pdata.parent_clk_list = uart_parent_clk;
+		cardhu_irda_pdata.parent_clk_count =
+					ARRAY_SIZE(uart_parent_clk);
+
+		tegra_uartb_device.dev.platform_data = &cardhu_irda_pdata;
+	}
+#endif
 
 	platform_add_devices(cardhu_uart_devices,
 				ARRAY_SIZE(cardhu_uart_devices));
 }
 
+static struct tegra_camera_platform_data tegra_camera_pdata = {
+	.limit_3d_emc_clk = false,
+};
+
 static struct platform_device tegra_camera = {
 	.name = "tegra_camera",
+	.dev = {
+		.platform_data = &tegra_camera_pdata,
+	},
 	.id = -1,
 };
+
+static void tegra_camera_init(void)
+{
+	/* For AP37 platform, limit 3d and emc freq when camera is ON */
+	if (TEGRA_REVISION_A03 == tegra_get_revision() &&
+		0xA0 == tegra_sku_id())
+		tegra_camera_pdata.limit_3d_emc_clk = true;
+	else
+		tegra_camera_pdata.limit_3d_emc_clk = false;
+}
 
 static struct platform_device *cardhu_spi_devices[] __initdata = {
 	&tegra_spi_device4,
@@ -745,12 +795,25 @@ static struct platform_device tegra_rtc_device = {
 	.num_resources = ARRAY_SIZE(tegra_rtc_resources),
 };
 
-static struct tegra_wm8903_platform_data cardhu_audio_wm8903_pdata = {
+static struct tegra_asoc_platform_data cardhu_audio_wm8903_pdata = {
 	.gpio_spkr_en		= TEGRA_GPIO_SPKR_EN,
 	.gpio_hp_det		= TEGRA_GPIO_HP_DET,
 	.gpio_hp_mute		= -1,
 	.gpio_int_mic_en	= -1,
 	.gpio_ext_mic_en	= -1,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+	},
+	.i2s_param[BASEBAND]	= {
+		.audio_port_id	= -1,
+	},
+	.i2s_param[BT_SCO]	= {
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+	},
 };
 
 static struct platform_device cardhu_audio_device = {
@@ -773,6 +836,19 @@ static struct tegra_asoc_platform_data cardhu_audio_max98095_pdata = {
 	.gpio_hp_mute		= -1,
 	.gpio_int_mic_en	= -1,
 	.gpio_ext_mic_en	= -1,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+	},
+	.i2s_param[BASEBAND]	= {
+		.audio_port_id	= -1,
+	},
+	.i2s_param[BT_SCO]	= {
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
+	},
 };
 
 static struct platform_device cardhu_audio_wm8903_device = {
@@ -806,14 +882,17 @@ static struct tegra_asoc_platform_data cardhu_audio_aic326x_pdata = {
 	.gpio_int_mic_en	= -1,
 	.gpio_ext_mic_en	= -1,
 	/*defaults for Verbier-Cardhu board with TI AIC326X codec*/
-	.audio_port_id		= {
-		[HIFI_CODEC] = 0,
-		[BASEBAND] = -1,
-		[BT_SCO] = 3,
+	.i2s_param[HIFI_CODEC]	= {
+		.audio_port_id	= 0,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_I2S,
+		.sample_size	= 16,
 	},
-	.baseband_param		= {
-		.rate = -1,
-		.channels = -1,
+	.i2s_param[BT_SCO]	= {
+		.sample_size	= 16,
+		.audio_port_id	= 3,
+		.is_i2s_master	= 1,
+		.i2s_mode	= TEGRA_DAIFMT_DSP_A,
 	},
 };
 
@@ -893,12 +972,12 @@ static const u8 e1506_config[] = {
 };
 
 #if defined(CONFIG_TOUCHSCREEN_ATMEL_MXT)
-#define MXT_CONFIG_CRC  0xD62DE8
+#define MXT_CONFIG_CRC  0x362575
 static const u8 config[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0xFF, 0xFF, 0x32, 0x0A, 0x00, 0x14, 0x14, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x00, 0x00,
-	0x1B, 0x2A, 0x00, 0x20, 0x3C, 0x04, 0x05, 0x00,
+	0x1B, 0x2A, 0x00, 0x20, 0x70, 0x04, 0x05, 0x00,
 	0x02, 0x01, 0x00, 0x0A, 0x0A, 0x0A, 0x0A, 0xFF,
 	0x02, 0x55, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x64, 0x02, 0x00, 0x00, 0x00,
@@ -917,12 +996,12 @@ static const u8 config[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
-#define MXT_CONFIG_CRC_SKU2000  0xA24D9A
+#define MXT_CONFIG_CRC_SKU2000  0xD6CDCD
 static const u8 config_sku2000[] = {
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	0xFF, 0xFF, 0x32, 0x0A, 0x00, 0x14, 0x14, 0x19,
+	0xFF, 0xFF, 0x32, 0x0A, 0x00, 0x14, 0x14, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x00, 0x00,
-	0x1B, 0x2A, 0x00, 0x20, 0x3A, 0x04, 0x05, 0x00,  //23=thr  2 di
+	0x1B, 0x2A, 0x00, 0x20, 0x70, 0x04, 0x05, 0x00,  //23=thr  2 di
 	0x04, 0x04, 0x41, 0x0A, 0x0A, 0x0A, 0x0A, 0xFF,
 	0x02, 0x55, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00,  //0A=limit
@@ -1107,8 +1186,8 @@ static int __init cardhu_touch_init(void)
             gpio_direction_input(TEGRA_GPIO_PO7);
             printk("TF500T: TP vender ID0=%d, TP vender ID1=%d\n", gpio_get_value(TEGRA_GPIO_PBB7), gpio_get_value(TEGRA_GPIO_PO7));
 #if defined(CONFIG_TOUCHSCREEN_SIS_I2C)
-	    i2c_register_board_info(TOUCH_BUS_ATMEL_T9, sis9200_i2c2_boardinfo, 1);	
-#endif 
+	    i2c_register_board_info(TOUCH_BUS_ATMEL_T9, sis9200_i2c2_boardinfo, 1);
+#endif
 	    break;
 	case TEGRA3_PROJECT_TF700T:
 #if defined(CONFIG_TOUCHSCREEN_ELAN_TF_3K)
@@ -1172,6 +1251,7 @@ static struct tegra_usb_platform_data tegra_ehci2_hsic_xmm_pdata = {
 		.power_off_on_suspend = false,
 	},
 	.u_cfg.hsic = {
+		.enable_gpio = EN_HSIC_GPIO,
 		.sync_start_delay = 9,
 		.idle_wait_delay = 17,
 		.term_range_adj = 0,
@@ -1375,24 +1455,26 @@ static struct tegra_usb_otg_data tegra_otg_pdata = {
 };
 #endif
 
-struct platform_device *tegra_usb3_utmip_host_register(void)
+struct platform_device *cardhu_tegra_usb_hsic_host_register(void)
 {
 	struct platform_device *pdev;
-	void *platform_data;
 	int val;
 
-	pdev = platform_device_alloc(tegra_ehci3_device.name, tegra_ehci3_device.id);
+	pdev = platform_device_alloc(tegra_ehci2_device.name,
+		tegra_ehci2_device.id);
 	if (!pdev)
 		return NULL;
 
-	val = platform_device_add_resources(pdev, tegra_ehci3_device.resource, tegra_ehci3_device.num_resources);
+	val = platform_device_add_resources(pdev, tegra_ehci2_device.resource,
+		tegra_ehci2_device.num_resources);
 	if (val)
 		goto error;
 
-	pdev->dev.dma_mask =  tegra_ehci3_device.dev.dma_mask;
-	pdev->dev.coherent_dma_mask = tegra_ehci3_device.dev.coherent_dma_mask;
+	pdev->dev.dma_mask =  tegra_ehci2_device.dev.dma_mask;
+	pdev->dev.coherent_dma_mask = tegra_ehci2_device.dev.coherent_dma_mask;
 
-	val = platform_device_add_data(pdev, &tegra_ehci3_utmi_pdata, sizeof(struct tegra_usb_platform_data));
+	val = platform_device_add_data(pdev, &tegra_ehci2_hsic_xmm_pdata,
+			sizeof(struct tegra_usb_platform_data));
 	if (val)
 		goto error;
 
@@ -1408,7 +1490,47 @@ error:
 	return NULL;
 }
 
-void tegra_usb3_utmip_host_unregister(struct platform_device *pdev)
+void cardhu_tegra_usb_hsic_host_unregister(struct platform_device *pdev)
+{
+	platform_device_unregister(pdev);
+}
+
+struct platform_device *cardhu_tegra_usb_utmip_host_register(void)
+{
+	struct platform_device *pdev;
+	int val;
+
+	pdev = platform_device_alloc(tegra_ehci2_device.name,
+		tegra_ehci2_device.id);
+	if (!pdev)
+		return NULL;
+
+	val = platform_device_add_resources(pdev, tegra_ehci2_device.resource,
+		tegra_ehci2_device.num_resources);
+	if (val)
+		goto error;
+
+	pdev->dev.dma_mask =  tegra_ehci2_device.dev.dma_mask;
+	pdev->dev.coherent_dma_mask = tegra_ehci2_device.dev.coherent_dma_mask;
+
+	val = platform_device_add_data(pdev, &tegra_ehci2_utmi_pdata,
+			sizeof(struct tegra_usb_platform_data));
+	if (val)
+		goto error;
+
+	val = platform_device_add(pdev);
+	if (val)
+		goto error;
+
+	return pdev;
+
+error:
+	pr_err("%s: failed to add the host contoller device\n", __func__);
+	platform_device_put(pdev);
+	return NULL;
+}
+
+void cardhu_tegra_usb_utmip_host_unregister(struct platform_device *pdev)
 {
 	platform_device_unregister(pdev);
 }
@@ -1452,7 +1574,17 @@ static void cardhu_usb_init(void)
 			tegra_ehci2_utmi_pdata.u_data.host.hot_plug = true;
 			tegra_ehci2_device.dev.platform_data = &tegra_ehci2_utmi_pdata;
 			platform_device_register(&tegra_ehci2_device);
+		}else if (project_info == TEGRA3_PROJECT_TF300TG) {
+			printk("[TF300TG] register tegra_ehci2_device\n");
+			tegra_ehci2_utmi_pdata.u_data.host.power_off_on_suspend = false;
+			tegra_ehci2_device.dev.platform_data =
+					 &tegra_ehci2_hsic_xmm_pdata;
+                /* ehci2 registration happens in baseband-xmm-power  */
 		}
+		/*
+		tegra_ehci2_device.dev.platform_data = &tegra_ehci2_utmi_pdata;
+		platform_device_register(&tegra_ehci2_device);
+		*/
 	}
 
 	tegra_ehci3_device.dev.platform_data = &tegra_ehci3_utmi_pdata;
@@ -1494,6 +1626,12 @@ static struct baseband_power_platform_data tegra_baseband_power_data = {
 	.xmm = {
 			.bb_rst = XMM_GPIO_BB_RST,
 			.bb_on = XMM_GPIO_BB_ON,
+			.bb_vbat = BB_GPIO_VBAT_ON,
+			.bb_rst_ind = BB_GPIO_RESET_IND,
+			.bb_vbus = BB_GPIO_VBUS_ON,
+			.bb_sw_sel = BB_GPIO_SW_SEL,
+			.bb_sim_cd = BB_GPIO_SIM_DET,
+			.bb_sar_det = BB_GPIO_SAR_DET,
 			.ipc_bb_wake = XMM_GPIO_IPC_BB_WAKE,
 			.ipc_ap_wake = XMM_GPIO_IPC_AP_WAKE,
 			.ipc_hsic_active = XMM_GPIO_IPC_HSIC_ACTIVE,
@@ -1605,6 +1743,43 @@ static void cardhu_modem_init(void)
 		platform_device_register(&tegra_baseband_power_device);
 		platform_device_register(&tegra_baseband_power2_device);
 		break;
+	case BOARD_PM269:
+		printk("BOARD_PM269");
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_rst);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_on);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_vbat);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_rst_ind);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_vbus);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sw_sel);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sim_cd);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sar_det);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_bb_wake);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_ap_wake);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_hsic_active);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_hsic_sus_req);
+		tegra_baseband_power_data.hsic_register =
+		&cardhu_tegra_usb_hsic_host_register;
+		tegra_baseband_power_data.hsic_unregister =
+			&cardhu_tegra_usb_hsic_host_unregister;
+		tegra_baseband_power_data.utmip_register =
+		&cardhu_tegra_usb_utmip_host_register;
+		tegra_baseband_power_data.utmip_unregister =
+			&cardhu_tegra_usb_utmip_host_unregister;
+		platform_device_register(&tegra_baseband_power_device);
+		platform_device_register(&tegra_baseband_power2_device);
+
 	default:
 		break;
 	}
@@ -1622,12 +1797,14 @@ static void cardhu_sata_init(void) { }
 extern void tegra_booting_info(void );
 static void __init tegra_cardhu_init(void)
 {
+	/* input chip uid for initialization of kernel misc module */
+	cardhu_misc_init(tegra_chip_uid());
 	tegra_thermal_init(&thermal_data,
 				throttle_list,
 				ARRAY_SIZE(throttle_list));
 	tegra_clk_init_from_table(cardhu_clk_init_table);
 	cardhu_pinmux_init();
-	cardhu_misc_init();
+	cardhu_misc_reset();
 	tegra_booting_info();
 	cardhu_i2c_init();
 	cardhu_spi_init();
@@ -1636,8 +1813,10 @@ static void __init tegra_cardhu_init(void)
 	cardhu_edp_init();
 #endif
 	cardhu_uart_init();
+	tegra_camera_init();
 	platform_add_devices(cardhu_devices, ARRAY_SIZE(cardhu_devices));
 	tegra_ram_console_debug_init();
+	tegra_io_dpd_init();
 	cardhu_sdhci_init();
 	cardhu_regulator_init();
 	cardhu_dtv_init();
