@@ -425,6 +425,8 @@ exit:
 }
 void battery_callback(unsigned usb_cable_state)
 {
+	u32 project_info = tegra3_get_project_id();
+
       int old_cable_status=battery_cable_status;
        printk("========================================================\n") ;
 	printk("battery_callback  usb_cable_state =%x\n",usb_cable_state ) ;
@@ -448,7 +450,15 @@ void battery_callback(unsigned usb_cable_state)
 		power_supply_changed(&pad_supply[Charger_Type_AC]);
 	}
 	cancel_delayed_work(&pad_device->status_poll_work);
-	queue_delayed_work(battery_work_queue, &pad_device->status_poll_work,2*HZ);
+
+	if(project_info == TEGRA3_PROJECT_P1801)
+	{
+		queue_delayed_work(battery_work_queue, &pad_device->status_poll_work,4*HZ);
+	}
+	else
+	{
+		queue_delayed_work(battery_work_queue, &pad_device->status_poll_work,2*HZ);
+	}
 }
 static irqreturn_t charger_pad_dock_interrupt(int irq, void *dev_id)
 {

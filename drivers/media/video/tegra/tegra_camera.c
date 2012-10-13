@@ -2,7 +2,7 @@
  * drivers/media/video/tegra/tegra_camera.c
  *
  * Copyright (C) 2010 Google, Inc.
- * Copyright (C) 2012 Nvidia Corp
+ * Copyright (c) 2010-2012, NVIDIA Corporation.  All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -61,6 +61,24 @@ struct tegra_camera_block {
 };
 
 static struct tegra_camera_dev *p_cam_dev;
+/*
+ * Declare and define two static variables to provide hint to
+ * gr3d module
+ */
+static int tegra_camera_on;
+static struct tegra_camera_platform_data *pdata;
+
+int is_tegra_camera_on(void)
+{
+	if (pdata) {
+		if (pdata->limit_3d_emc_clk)
+			return tegra_camera_on;
+		else
+			return 0;
+	} else {
+		return 0;
+	}
+}
 
 static int tegra_camera_enable_clk(struct tegra_camera_dev *dev)
 {
@@ -251,6 +269,7 @@ static int tegra_camera_power_on(struct tegra_camera_dev *dev)
 			__func__);
 #endif
 	dev->power_on = 1;
+	tegra_camera_on = dev->power_on;
 	return ret;
 }
 
@@ -279,6 +298,7 @@ static int tegra_camera_power_off(struct tegra_camera_dev *dev)
 		}
 	}
 	dev->power_on = 0;
+	tegra_camera_on = dev->power_on;
 	return ret;
 }
 
@@ -474,6 +494,7 @@ static int tegra_camera_probe(struct platform_device *pdev)
 	mutex_unlock(&dev->tegra_camera_lock);
 
 	dev->dev = &pdev->dev;
+	pdata = pdev->dev.platform_data;
 
 	/* Get regulator pointer */
 #ifdef CONFIG_ARCH_TEGRA_2x_SOC

@@ -1255,7 +1255,7 @@ static ssize_t dbg_set_mi1040_reg_write(struct file *file, char __user *buf, siz
 	debug_buf[count] = '\0';	/* end of string */
 	cnt = sscanf(debug_buf, "%s %s %d", ofst_str, reg_val_str, &byte_num);
 
-	printk("adogu: cnt= %d; ofst_str=\"%s\"; reg_val_str=\"%s\"; byte_num= %d\n", cnt, ofst_str, reg_val_str, byte_num);
+	//printk("cnt= %d; ofst_str=\"%s\"; reg_val_str=\"%s\"; byte_num= %d\n", cnt, ofst_str, reg_val_str, byte_num);
 
 	if (sensor_opened == false) {
 			printk("%s: Please open mi1040 first.\n", __FUNCTION__);
@@ -1283,7 +1283,7 @@ static ssize_t dbg_set_mi1040_reg_write(struct file *file, char __user *buf, siz
 
 			/* Parse Reg Value */
 			for (i = 2; i < 11; i++) {
-				// printk("adogu: i =%d\n", i);
+				// printk("i =%d\n", i);
 
 				if ((reg_val_str[i] >= '0') && (reg_val_str[i] <= '9'))
 					reg_val = reg_val * 16 + reg_val_str[i] - '0';
@@ -1409,7 +1409,7 @@ static long sensor_ioctl(struct file *file,
 	}
 	case SENSOR_IOCTL_SET_COLOR_EFFECT:
 	{
-		u8 coloreffect;
+		u16 coloreffect;
 
 		if (copy_from_user(&coloreffect,(const void __user *)arg,
 			sizeof(coloreffect))) {

@@ -8,15 +8,20 @@
 #include <linux/switch.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
+#include <linux/wakelock.h>
 #include <mach/board-cardhu-misc.h>
 
 #include "pm-irq.h"
 #include "ril.h"
 #include "ril_proximity.h"
 #include "ril_wakeup.h"
+#include "ril_sim.h"
+#include "ril_modem_crash.h"
 
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
+
+static int ril_resume(struct platform_device *pdev);
 
 //**** external symbols
 
@@ -35,6 +40,19 @@ static dev_t ril_dev;
 static int ril_major = 0;
 static int ril_minor = 0;
 int project_id = 0;
+extern void tegra_ehci_modem_port_host_reregister(void);
+
+static struct platform_device ril_device = {
+	.name = "ril",
+};
+
+struct platform_driver ril_driver = {
+	.resume   = ril_resume,
+	.driver     = {
+		.name   = "ril",
+		.owner  = THIS_MODULE,
+	},
+};
 
 static struct gpio ril_gpios_TF300TG[] = {
 	{ MOD_VBUS_ON,    GPIOF_OUT_INIT_LOW,  "BB_VBUS"    },
@@ -71,8 +89,7 @@ irqreturn_t ril_ipc_sar_det_irq(int irq, void *dev_id)
 
 irqreturn_t ril_ipc_sim_det_irq(int irq, void *dev_id)
 {
-	// TODO: implement SIM hot-plug here
-	return IRQ_HANDLED;
+	return sim_interrupt_handle(irq, dev_id);
 }
 
 //**** sysfs callback functions
@@ -153,6 +170,19 @@ static ssize_t store_download_state(struct device *class, struct device_attribut
 	return store_gpio(count, buf, DL_MODE, "DL_MODE");
 }
 
+static ssize_t store_mod_host_controller_rst(struct device *class, struct attribute *attr,
+       const char *buf, size_t count)
+{
+       int state;
+
+       sscanf(buf, "%d", &state);
+
+       if ((state > 0) && (project_id == TEGRA3_PROJECT_TF300TL)) {
+                       tegra_ehci_modem_port_host_reregister();
+       }
+
+       return count;
+}
 
 //**** sysfs list
 /* TF300TG sysfs array */
@@ -167,8 +197,18 @@ static struct device_attribute device_attr_TF300TL[] = {
 	__ATTR(vbat, _ATTR_MODE, show_vbat_state, store_vbat_state),
 	__ATTR(mod_rst, _ATTR_MODE, show_reset_state, store_reset_state),
 	__ATTR(dl_mode, _ATTR_MODE, show_download_state, store_download_state),
+	__ATTR(mod_host_controller_rst, _ATTR_MODE, NULL, store_mod_host_controller_rst),
 	__ATTR_NULL,
 };
+
+//**** driver operate functons
+static int ril_resume(struct platform_device *pdev)
+{
+	if (proximity_enabled) {
+		RIL_INFO("check SAR_DET_3G pin");
+		check_sar_det_3g();
+	}
+}
 
 //**** initialize and finalize
 
@@ -304,10 +344,25 @@ static int __init ril_init(void)
 		return -1;
 	}
 
+	err = platform_device_register(&ril_device);
+	if(err) {
+		RIL_ERR("platform_device_register failed\n");
+		goto device_failed;
+	}
+
+	err = platform_driver_register(&ril_driver);
+	if(err) {
+		RIL_ERR("platform_driver_register failed\n");
+		goto driver_failed;
+	}
+
 	/* create device file(s) */
 	err = create_ril_files();
 	if (err < 0)
 		goto failed1;
+
+	/* need to init before request SAR_DET_3G irq */
+	spin_lock_init(&proximity_irq_lock);
 
 	/* request ril irq(s) */
 	err = request_irq(gpio_to_irq(SAR_DET_3G),
@@ -360,11 +415,32 @@ static int __init ril_init(void)
 			RIL_ERR("init wakeup_control failed\n");
 			goto failed6;
 		}
+    }
+
+	/* init SIM plug functions */
+	err = sim_hot_plug_init(dev, workqueue);
+	if (err < 0) {
+		pr_err("%s - init SIM hotplug failed\n",
+			__func__);
+		goto failed7;
+	}
+
+	err = ril_modem_crash_init(dev, workqueue);
+	if (err < 0) {
+		pr_err("%s - init modem crash handler failed\n",
+			__func__);
+		goto failed8;
 	}
 
 	RIL_INFO("RIL init successfully\n");
 	return 0;
 
+failed8:
+	sim_hot_plug_exit();
+failed7:
+	if (TEGRA3_PROJECT_TF300TL == project_id) {
+		free_wakeup_control();
+	}
 failed6:
 	ril_proximity_exit();
 failed5:
@@ -376,6 +452,10 @@ failed3:
 failed2:
 	remove_ril_files();
 failed1:
+	platform_driver_unregister(&ril_driver);
+driver_failed:
+	platform_device_unregister(&ril_device);
+device_failed:
 	if (project_id == TEGRA3_PROJECT_TF300TG) {
 		gpio_free_array(ril_gpios_TF300TG,
 				ARRAY_SIZE(ril_gpios_TF300TG));
@@ -403,8 +483,17 @@ static void __exit ril_exit(void)
 				ARRAY_SIZE(ril_gpios_TF300TL));
 	}
 
+	platform_driver_unregister(&ril_driver);
+	platform_device_unregister(&ril_device);
+
 	/* delete device file(s) */
 	remove_ril_files();
+
+	/* unregister modem crash handler */
+	ril_modem_crash_exit();
+
+	/* unregister SIM hot plug */
+	sim_hot_plug_exit();
 
 	/* unregister proximity switch */
 	ril_proximity_exit();

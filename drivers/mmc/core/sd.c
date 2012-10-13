@@ -18,8 +18,6 @@
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sd.h>
 
-#include <linux/gpio.h>
-
 #include "core.h"
 #include "bus.h"
 #include "mmc_ops.h"
@@ -1071,26 +1069,18 @@ static int mmc_sd_detect(struct mmc_host *host)
 	 * Just check if our card has been removed.
 	 */
 #ifdef CONFIG_MMC_PARANOID_SD_INIT
-	if(gpio_get_value(SD_CARD_DETECT) == 1)
-	{
-		MMC_printk("%s: sd skip re-detect card", mmc_hostname(host));
-		err = 1;
+	while(retries) {
+		err = mmc_send_status(host->card, NULL);
+		if (err) {
+			retries--;
+			udelay(5);
+			continue;
+		}
+		break;
 	}
-	else
-	{
-		while(retries) {
-			err = mmc_send_status(host->card, NULL);
-			if (err) {
-				retries--;
-				udelay(5);
-				continue;
-			}
-			break;
-		}
-		if (!retries) {
-			printk(KERN_ERR "%s(%s): Unable to re-detect card (%d)\n",
-			       __func__, mmc_hostname(host), err);
-		}
+	if (!retries) {
+		printk(KERN_ERR "%s(%s): Unable to re-detect card (%d)\n",
+		       __func__, mmc_hostname(host), err);
 	}
 #else
 	err = mmc_send_status(host->card, NULL);

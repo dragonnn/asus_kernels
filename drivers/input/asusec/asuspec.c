@@ -58,6 +58,10 @@ static ssize_t asuspec_charging_led_store(struct device *class,
 		struct device_attribute *attr,const char *buf, size_t count);
 static ssize_t asuspec_led_show(struct device *class,
 		struct device_attribute *attr,char *buf);
+static ssize_t asuspec_enter_factory_mode_show(struct device *class,
+		struct device_attribute *attr,char *buf);
+static ssize_t asuspec_enter_normal_mode_show(struct device *class,
+		struct device_attribute *attr,char *buf);
 static ssize_t asuspec_switch_name(struct switch_dev *sdev, char *buf);
 static ssize_t asuspec_switch_state(struct switch_dev *sdev, char *buf);
 static int asuspec_suspend(struct i2c_client *client, pm_message_t mesg);
@@ -139,7 +143,8 @@ static DEVICE_ATTR(ec_control_flag, S_IWUSR | S_IRUGO, asuspec_control_flag_show
 static DEVICE_ATTR(ec_request, S_IWUSR | S_IRUGO, asuspec_send_ec_req_show,NULL);
 static DEVICE_ATTR(ec_led, S_IWUSR | S_IRUGO, asuspec_led_show,NULL);
 static DEVICE_ATTR(ec_charging_led, S_IWUSR | S_IRUGO, NULL, asuspec_charging_led_store);
-
+static DEVICE_ATTR(ec_factory_mode, S_IWUSR | S_IRUGO, asuspec_enter_factory_mode_show,NULL);
+static DEVICE_ATTR(ec_normal_mode, S_IWUSR | S_IRUGO, asuspec_enter_normal_mode_show,NULL);
 
 static struct attribute *asuspec_smbus_attributes[] = {
 	&dev_attr_ec_status.attr,
@@ -150,6 +155,8 @@ static struct attribute *asuspec_smbus_attributes[] = {
 	&dev_attr_ec_request.attr,
 	&dev_attr_ec_led.attr,
 	&dev_attr_ec_charging_led.attr,
+	&dev_attr_ec_factory_mode.attr,
+	&dev_attr_ec_normal_mode.attr,
 NULL
 };
 
@@ -867,6 +874,18 @@ static ssize_t asuspec_led_show(struct device *class,struct device_attribute *at
 		return sprintf(buf, "Fail to EC LED Blink\n");
 	else
 		return sprintf(buf, "EC LED Blink\n");
+}
+
+static ssize_t asuspec_enter_factory_mode_show(struct device *class,struct device_attribute *attr,char *buf)
+{
+	asuspec_enter_factory_mode();
+	return sprintf(buf, "Entering factory mode\n");
+}
+
+static ssize_t asuspec_enter_normal_mode_show(struct device *class,struct device_attribute *attr,char *buf)
+{
+	asuspec_enter_normal_mode();
+	return sprintf(buf, "Entering normal mode\n");
 }
 
 static ssize_t asuspec_switch_name(struct switch_dev *sdev, char *buf)

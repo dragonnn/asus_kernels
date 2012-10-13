@@ -66,6 +66,16 @@ static unsigned int version_num_in_isp = 0xffffff;
 static unsigned int fw_front_type_in_isp = 0x0;
 static unsigned int front_chip_id = 0xABCD;
 
+static u16 coloreffect;
+static u16 g_Streaming_type = 0;
+
+/* force_capture_mode
+ * 0: Single
+ * 1: HDR
+ * 4: Burst Capture
+ */
+static unsigned int force_capture_mode = 0xabcdef;
+
 /* mi1040 format:
  * 0: YUV
  * 1: RGB
@@ -1275,6 +1285,115 @@ u32 I2C_SPISstFlashWrite(
 	return err;
 }
 
+static int seqI2CDataRead(struct i2c_client *client, u16 addr, u8 *val)
+{
+	int err;
+	struct i2c_msg msg[2];
+	unsigned char data[6];
+	if (!client->adapter)
+		return -ENODEV;
+
+	msg[0].addr = client->addr;
+	msg[0].flags = 0;
+	msg[0].len = 2;
+	msg[0].buf = data;
+
+	/* high byte goes out first */
+	data[0] = (u8) (addr >> 8);;
+	data[1] = (u8) (addr & 0xff);
+
+	msg[1].addr = client->addr;
+	msg[1].flags = I2C_M_RD;
+
+	msg[1].len = 4;
+	msg[1].buf = data + 2;
+
+	err = i2c_transfer(client->adapter, msg, 2);
+
+	if (err != 2)
+		return -EINVAL;
+
+	memcpy(val, data+2, 4);
+
+	return 0;
+}
+
+u32 I2C_7002DmemRd(
+	u32 bankNum,
+	u32 byteNum,
+	u8* pbuf
+)
+{
+	u32 i, bank;
+
+	bank = 0x40+bankNum;
+	I2CDataWrite(0x10A6,bank);
+
+	for(i=0;i<byteNum;i+=4) {
+		seqI2CDataRead(info->i2c_client, (0x1800+i), (pbuf+i));
+	}
+
+	bank = 0x40 + ((bankNum+1)%2);
+	I2CDataWrite(0x10A6,bank);
+}
+
+u32 I2C_SPIFlashRead_DMA(
+	u32 addr,
+	u32 pages,
+	u8 *pbuf
+)
+{
+	u8* pbufR;
+	u32 ch, err = 0, dmemBank;
+	u32 i, ret, count=0, size=0, bytes, offset;
+	u32 pageSize = 0x100;
+
+	addr = addr * pageSize;
+	size = pages*pageSize;
+
+	/* Set DMA bytecnt as 256-1 */
+	I2CDataWrite(0x4170,0xff);
+	I2CDataWrite(0x4171,0x00);
+	I2CDataWrite(0x4172,0x00);
+
+	/* Set DMA bank & DMA start address */
+	I2CDataWrite(0x1084,0x01);
+	I2CDataWrite(0x1080,0x00);
+	I2CDataWrite(0x1081,0x00);
+	I2CDataWrite(0x1082,0x00);
+
+	/* enable DMA checksum and reset checksum */
+	I2CDataWrite(0x4280,0x01);
+	I2CDataWrite(0x4284,0x00);
+	I2CDataWrite(0x4285,0x00);
+	I2CDataWrite(0x4164,0x01);
+
+	while(pages) {
+		I2CDataWrite(0x40e7,0x00);
+		I2C_SPIFlashPortWrite(SPI_CMD_BYTE_READ);	/* Write one byte command*/
+		I2C_SPIFlashPortWrite((u8)(addr >> 16));	/* Send 3 bytes address*/
+		I2C_SPIFlashPortWrite((u8)(addr >> 8));
+		I2C_SPIFlashPortWrite((u8)(addr));
+
+		if((pages%0x40) == 0x00) {
+			printk("RE:0x%x\n",pages);
+		}
+		dmemBank = pages % 2;
+		I2CDataWrite(0x1081,dmemBank*0x20);
+		I2CDataWrite(0x1084,(1<<dmemBank));
+		I2CDataWrite(0x4160,0x01);
+		udelay(100);
+		I2CDataWrite(0x40e7,0x01);
+		I2C_7002DmemRd(dmemBank,pageSize,pbuf);
+
+		pbuf += pageSize;
+		pages--;
+		addr += pageSize;
+	}
+
+	return err;
+}
+
 /* get_one_page_from_i7002a():
  *   Dump the ISP page whose index is "which_page" to "pagebuf".
  *   mclk, power & rst are requisite for getting correct page data.
@@ -1296,7 +1415,7 @@ void get_one_page_from_i7002a(int which_page, u8* pagebuf)
 
 	I2C_SPIFlashReadId();
 
-	I2C_SPIFlashRead(which_page, 1, pagebuf);
+	I2C_SPIFlashRead_DMA(which_page, 1, pagebuf);
 
 #if 1 // dump to kmsg ?
 	printk("page#%d:\n", which_page);
@@ -1583,6 +1702,12 @@ BB_WrSPIFlash(char* binfile_path)
 	printk("%s: checksum in bin:%02X %02X; %02X %02X\n", __FUNCTION__,
 		checksum1_in_bin[0],checksum1_in_bin[1],checksum2_in_bin[0], checksum2_in_bin[1]);
 
+	/* 20120828 updated */
+	I2CDataWrite(0x1011,0x01); /* CPU SW RESET */
+	I2CDataWrite(0x001C,0x08); /* reset FM register */
+	I2CDataWrite(0x001C,0x00);
+	I2CDataWrite(0x108C,0x00); /* DMA select*/
+
 	ret = I2C_SPIInit();
 	if (ret) {
 		printk("%s: SPI init fail. ret= 0x%x", __FUNCTION__, ret);
@@ -1703,16 +1828,35 @@ static int sensor_set_mode(struct sensor_info *info, struct sensor_mode *mode)
 
 	if (mode->xres == 3264 && mode->yres == 2448) {
 		sensor_table = SENSOR_MODE_3264x2448;
-		//sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
-		//sensor_write_reg(info->i2c_client, 0x7106, 0x01);
-		if (factory_mode==2) {
-			sensor_write_reg(info->i2c_client, 0x7106, 0x01);//preview mode
-			sensor_write_reg(info->i2c_client, 0x7120, 0x00);
-		}
-		else {
-			sensor_write_reg(info->i2c_client, 0x71EB, 0x01);//AE/AWB lock
-			sensor_write_reg(info->i2c_client, 0x710f, 0x00);//capture mode
-			sensor_write_reg(info->i2c_client, 0x7120, 0x01);
+
+		if(tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
+			if((force_capture_mode==0) ||
+				(force_capture_mode==1) ||
+				(force_capture_mode==4)) {
+				printk("%s: Force capture mode: %s.\n", __func__,
+					(force_capture_mode==0)?("Single"):((force_capture_mode==1)?("HDR"):("BurstCapture")));
+				sensor_write_reg(info->i2c_client, 0x71EB, 0x01);//AE/AWB lock
+				sensor_write_reg(info->i2c_client, 0x710f, force_capture_mode);
+				sensor_write_reg(info->i2c_client, 0x7120, 0x01);//capture mode
+			} else if(g_Streaming_type == STREAMING_TYPE_HDR_STREAMING){
+				printk("%s: 8M HDR Capture.\n", __func__);
+				sensor_write_reg(info->i2c_client, 0x71EB, 0x01);//AE/AWB lock
+				sensor_write_reg(info->i2c_client, 0x710f, 0x01);//HDR capture
+				sensor_write_reg(info->i2c_client, 0x7120, 0x01);//capture mode
+			} else {
+				printk("%s: 8M Preview Mode.\n", __func__);
+				sensor_write_reg(info->i2c_client, 0x7106, 0x01);//3264x2448
+				sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
+			}
+		} else {
+			if (factory_mode==2) {
+				sensor_write_reg(info->i2c_client, 0x7106, 0x01);//3264x2448
+				sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
+			}else{
+				sensor_write_reg(info->i2c_client, 0x71EB, 0x01);//AE/AWB lock
+				sensor_write_reg(info->i2c_client, 0x710f, 0x00);//single
+				sensor_write_reg(info->i2c_client, 0x7120, 0x01);//capture mode
+			}
 		}
 		printk("%s: resolution supplied to set mode %d %d\n",
 			__func__, mode->xres, mode->yres);
@@ -1737,8 +1881,8 @@ static int sensor_set_mode(struct sensor_info *info, struct sensor_mode *mode)
 	}
 	else if (mode->xres == 1920 && mode->yres == 1080) {
 		sensor_table = SENSOR_MODE_1920x1080;
-		sensor_write_reg(info->i2c_client, 0x7106, 0x02);//preview mode
-		sensor_write_reg(info->i2c_client, 0x7120, 0x00);//1920x1080
+		sensor_write_reg(info->i2c_client, 0x7106, 0x02);//1920x1080
+		sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
 		printk("%s: resolution supplied to set mode %d %d\n",
 			__func__, mode->xres, mode->yres);
 		for (i=0;i<200;i++) {
@@ -1759,10 +1903,11 @@ static int sensor_set_mode(struct sensor_info *info, struct sensor_mode *mode)
 	}
 	else if (mode->xres == 1280 && mode->yres == 960) {
 		sensor_table = SENSOR_MODE_1280x960;
+		printk("%s: 1.2M Preview Mode\n", __func__);
 		//sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
 		//sensor_write_reg(info->i2c_client, 0x7106, 0x00);
-		sensor_write_reg(info->i2c_client, 0x7106, 0x00);//preview mode
-		sensor_write_reg(info->i2c_client, 0x7120, 0x00);
+		sensor_write_reg(info->i2c_client, 0x7106, 0x00);//1280x960
+		sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
 		//sensor_write_reg(info->i2c_client, 0x7106, 0x00);//workaround for ov2720 output size, not affect IMX175
 		printk("%s: resolution supplied to set mode %d %d\n",
 		__func__, mode->xres, mode->yres);
@@ -1787,7 +1932,7 @@ static int sensor_set_mode(struct sensor_info *info, struct sensor_mode *mode)
 	else if (mode->xres == 1280 && mode->yres == 720) {
 		sensor_table = SENSOR_MODE_1280x720;
 		sensor_write_reg(info->i2c_client, 0x7120, 0x00);//preview mode
-		sensor_write_reg(info->i2c_client, 0x7106, 0x02);//1280x720
+		sensor_write_reg(info->i2c_client, 0x7106, 0x04);//1280x720
 		printk("%s: resolution supplied to set mode %d %d\n",
 			__func__, mode->xres, mode->yres);
 	}
@@ -1865,37 +2010,64 @@ static long sensor_ioctl(struct file *file,
 	}
 	case SENSOR_IOCTL_SET_COLOR_EFFECT:
 	{
-		u8 coloreffect;
-		if (copy_from_user(&coloreffect,(const void __user *)arg,
-			sizeof(coloreffect))) {
-			return -EFAULT;
-		}
-		printk("SET_COLOR_EFFECT as %d\n", coloreffect);
-		switch(coloreffect) {
-		case YUV_ColorEffect_None:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x00);//auto
-			break;
-		case YUV_ColorEffect_Sepia:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x03);//sepia
-			break;
-		case YUV_ColorEffect_Mono:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x04);//grayscale
-			break;
-		case YUV_ColorEffect_Negative:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x02);//negative
-			break;
-		case YUV_ColorEffect_Vivid:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x05);//vivid
-			break;
-		case YUV_ColorEffect_WaterColor:
-			err = sensor_write_reg(info->i2c_client, 0x7102, 0x01);//aqua
-			break;
-		default:
-			break;
-		}
+		if(tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
+			if (copy_from_user(&coloreffect,(const void __user *)arg,
+				sizeof(coloreffect))) {
+				return -EFAULT;
+			}
+			printk("SET_COLOR_EFFECT as 0x%X\n", coloreffect);
+			switch(coloreffect) {
+			case YUV_ColorEffect_None:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x00);//none
+				break;
+			case YUV_ColorEffect_Aqua:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x01);//aqua
+				break;
+			case YUV_ColorEffect_Negative:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x02);//negative
+				break;
+			case YUV_ColorEffect_Sepia:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x03);//sepia
+				break;
+			case YUV_ColorEffect_Mono:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x04);//grayscale
+				break;
+			case YUV_ColorEffect_Vivid:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x05);//vivid
+				break;
+			case YUV_ColorEffect_Aura:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x06);//aura
+				break;
+			case YUV_ColorEffect_Vintage:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x07);//vintage
+				break;
+			case YUV_ColorEffect_Vintage2:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x08);//vintage2
+				break;
+			case YUV_ColorEffect_Lomo:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x09);//lomo
+				break;
+			case YUV_ColorEffect_Red:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x0a);//red
+				break;
+			case YUV_ColorEffect_Blue:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x0b);//blue
+				break;
+			case YUV_ColorEffect_Yellow:
+				err = sensor_write_reg(info->i2c_client, 0x7102, 0x0c);//yellow
+				break;
+			default:
+				printk("Unknown color effect: 0x%X\n", coloreffect);
+				break;
+			}
 
-		if (err)
-			return err;
+			if (err) {
+				printk("SET_COLOR_EFFECT error: 0x%x\n", err);
+				return err;
+			}
+		} else
+			printk("COLOR EFFECT is unsupported.\n");
+
 		return 0;
 	}
 	case SENSOR_IOCTL_SET_WHITE_BALANCE:
@@ -2258,6 +2430,8 @@ static long sensor_ioctl(struct file *file,
 		u16 et_denominator_byte2 = 0;
 		u16 et_denominator_byte3 = 0;
 
+		sensor_write_reg(info->i2c_client, 0x71EB, 0x01); // Get EXIF
+
 		sensor_read_reg(info->i2c_client, 0x72b0, &et_numerator);
 		sensor_read_reg(info->i2c_client, 0x72b1, &et_denominator_byte1);
 		sensor_read_reg(info->i2c_client, 0x72b2, &et_denominator_byte2);
@@ -2431,9 +2605,71 @@ static long sensor_ioctl(struct file *file,
 			err = sensor_write_reg(info->i2c_client, 0x714B, (ae_win.win_x)&0xff);
 			err = sensor_write_reg(info->i2c_client, 0x714C, (ae_win.win_y)>>8);
 			err = sensor_write_reg(info->i2c_client, 0x714D, (ae_win.win_y)&0xff);
+
+			// TAE on (Use TAE ROI)
+			err = sensor_write_reg(info->i2c_client, 0x714E, 0x01);
 		}
 		if (err)
 			return err;
+		break;
+	}
+	case SENSOR_CUSTOM_IOCTL_SET_WDR:
+	{
+		if (tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
+			u16 wdr_on;
+			u16 dwdr_control;
+			if (copy_from_user(&wdr_on,(const void __user *)arg,
+				sizeof(wdr_on))) {
+				return -EFAULT;
+			}
+			wdr_on = wdr_on & 0x1;
+			printk("SET_WDR as 0x%X\n", wdr_on);
+			sensor_read_reg(info->i2c_client, 0x729B, &dwdr_control); //DWDR read
+
+			if (wdr_on) {
+				printk("SET 0x%x to [0x711B]\n", dwdr_control | 0x0001);
+				err = sensor_write_reg(info->i2c_client, 0x711B, dwdr_control | 0x0001);
+			} else {
+				printk("SET 0x%x to [0x711B]\n", dwdr_control & 0xFFFE);
+				err = sensor_write_reg(info->i2c_client, 0x711B, dwdr_control & 0xFFFE);
+			}
+		} else
+			printk("WDR is unsupported.\n");
+
+		break;
+	}
+	case SENSOR_CUSTOM_IOCTL_SET_AURA:
+	{
+		if (tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
+			if (coloreffect == YUV_ColorEffect_Aura) {
+				u16 aura;
+				if (copy_from_user(&aura, (const void __user *)arg,
+					sizeof(aura))) {
+					return -EFAULT;
+				}
+
+				printk("SET_AURA as 0x%X\n", aura);
+					err = sensor_write_reg(info->i2c_client, 0x7119, aura);
+			} else
+				printk("SET_AURA: Coloereffect is not aura. No action.\n");
+		} else
+			printk("AURA is unsupported.\n");
+
+		break;
+	}
+	case SENSOR_CUSTOM_IOCTL_SET_STREAMING_TYPE:
+	{
+		if (tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
+			if (copy_from_user(&g_Streaming_type,(const void __user *)arg,
+				sizeof(g_Streaming_type))) {
+				return -EFAULT;
+			}
+			g_Streaming_type = g_Streaming_type & 0xff;
+			printk("set STREAMING_TYPE as 0x%x\n", g_Streaming_type);
+
+		} else
+			printk("SET_STREAMING_TYPE is unsupported.\n");
+
 		break;
 	}
 	case SENSOR_CUSTOM_IOCTL_SET_AE_LOCK:
@@ -2978,11 +3214,11 @@ static ssize_t dbg_i7002a_bin_dump_read(struct file *file, char __user *buf, siz
 
 	if (tegra3_get_project_id() == TEGRA3_PROJECT_TF500T) {
 		mybin = kmalloc(1024*1024, GFP_KERNEL);
-		I2C_SPIFlashRead(0, 4096, mybin);
+		I2C_SPIFlashRead_DMA(0, 4096, mybin);
 	}
 	else {
 		mybin = kmalloc(512*1024, GFP_KERNEL);
-		I2C_SPIFlashRead(0, 2048, mybin);
+		I2C_SPIFlashRead_DMA(0, 2048, mybin);
 	}
 
 	i7002a_isp_on(0);
@@ -3648,6 +3884,9 @@ static const struct file_operations iCatch7002a_power_fops = {
 	(void) debugfs_create_file("camera_status", S_IRUGO, dent, NULL, &dbg_iCatch7002a_camera_status_fops);
 	(void) debugfs_create_file("vga_status", S_IRUGO, dent, NULL, &dbg_iCatch7002a_vga_status_fops);
 	(void) debugfs_create_file("iCatch_chip_power", S_IRUGO | S_IWUSR, dent, NULL, &iCatch7002a_power_fops);
+
+	debugfs_create_u32("capture_mode",S_IRUGO | S_IWUSR, dent, &force_capture_mode);
+
 #ifdef ICATCH7002A_DELAY_TEST
 	if (debugfs_create_u32("iCatch7002a_delay", S_IRUGO | S_IWUSR, dent, &iCatch7002a_init_delay)
 		== NULL) {

@@ -35,6 +35,8 @@
 #include <../arch/arm/mach-tegra/gpio-names.h>
 #include <linux/switch.h>
 #include <linux/miscdevice.h>
+#include <linux/proc_fs.h>
+#include <../arch/arm/mach-tegra/board-cardhu.h>
 #define GPIO_IRQ TEGRA_GPIO_PH4
 
 #ifdef _STD_RW_IO
@@ -57,6 +59,7 @@ static struct switch_dev sis_touch_sdev;
 static int i2c_status = 0;
 static atomic_t touch_char_available = ATOMIC_INIT(1);
 
+#define TOUCH_PMIC_5V_POWER TPS6591X_GPIO_8
 #define TOUCH_STRESS_TEST 1
 #ifdef TOUCH_STRESS_TEST
 #define STRESS_IOC_MAGIC 0xF3
@@ -73,6 +76,14 @@ static struct workqueue_struct *stress_work_queue;
 static atomic_t touch_stress_available = ATOMIC_INIT(1);
 struct miscdevice  stress_misc_dev;
 #endif
+
+#define _ENABLE_DBG_LEVEL    
+#ifdef _ENABLE_DBG_LEVEL
+#define PROC_FS_NAME	"sis_dbg"
+#define PROC_FS_MAX_LEN	8
+static struct proc_dir_entry *dbgProcFile;
+#endif
+static unsigned int gPrint_point = 0;
 
 static void sis_tpinfo_clear(struct sisTP_driver_data *TPInfo, int max);
 
@@ -931,7 +942,8 @@ static void sis_ts_work_func(struct work_struct *work)
 				{
 					if (BIT_AREA(buf[L_REPORT_ID]))
 					{
-						TPInfo->pt[i].bWidth = ((buf[pstatus + 6] & 0xff) | ((buf[pstatus + 7] & 0xff)<< 8));
+						//TPInfo->pt[i].bWidth = ((buf[pstatus + 6] & 0xff) | ((buf[pstatus + 7] & 0xff)<< 8));
+						TPInfo->pt[i].bWidth = buf[pstatus + 6] & 0xff;
 						TPInfo->pt[i].bPressure = (buf[pstatus + 8]);
 					}
 					else
@@ -996,6 +1008,9 @@ static void sis_ts_work_func(struct work_struct *work)
 				input_report_abs(ts->input_dev, ABS_MT_POSITION_Y, TPInfo->pt[i].y);
 				input_report_abs(ts->input_dev, ABS_MT_TRACKING_ID, TPInfo->pt[i].id);     //Android 2.3
 				input_mt_sync(ts->input_dev);
+				if(unlikely(gPrint_point))
+					printk("ID = %d , x=%d, y=%d, pressure = %d , width = %d \n", TPInfo->pt[i].id, 
+					TPInfo->pt[i].x, TPInfo->pt[i].y, TPInfo->pt[i].bPressure, TPInfo->pt[i].bWidth);
 				all_touch_up = false;
 			}
 			
@@ -1628,6 +1643,67 @@ static struct attribute *sis_attr[] = {
 };
 
 
+#ifdef _ENABLE_DBG_LEVEL
+static int sis_proc_read(char *buffer, char **buffer_location, off_t offset, int buffer_length, int *eof, void *data )
+{
+	int ret;
+	
+	printk("call proc_read\n");
+	
+	if(offset > 0)  /* we have finished to read, return 0 */
+		ret  = 0;
+	else 
+		ret = sprintf(buffer, "Debug Level: Release Date: %s\n","2011/10/05");
+
+	return ret;
+}
+
+static int sis_proc_write(struct file *file, const char *buffer, unsigned long count, void *data)
+{
+	char procfs_buffer_size = 0; 
+	int i, ret = 0;
+	unsigned char procfs_buf[PROC_FS_MAX_LEN+1] = {0};
+	unsigned int command;
+
+	procfs_buffer_size = count;
+	if(procfs_buffer_size > PROC_FS_MAX_LEN ) 
+		procfs_buffer_size = PROC_FS_MAX_LEN+1;
+	
+	if( copy_from_user(procfs_buf, buffer, procfs_buffer_size) ) 
+	{
+		printk(" proc_write faied at copy_from_user\n");
+		return -EFAULT;
+	}
+
+	command = 0;
+	for(i=0; i<procfs_buffer_size-1; i++)
+	{
+		if( procfs_buf[i]>='0' && procfs_buf[i]<='9' )
+			command |= (procfs_buf[i]-'0');
+		else if( procfs_buf[i]>='A' && procfs_buf[i]<='F' )
+			command |= (procfs_buf[i]-'A'+10);
+		else if( procfs_buf[i]>='a' && procfs_buf[i]<='f' )
+			command |= (procfs_buf[i]-'a'+10);
+		
+		if(i!=procfs_buffer_size-2)
+			command <<= 4;
+	}
+
+	command = command&0xFFFFFFFF;
+      switch(command){
+      case 0xF1: 
+	  	 gPrint_point = 1; 
+	  	 break;
+      case 0xF2: 
+	  	 gPrint_point = 0; 
+	  	 break;
+	}
+	printk("Run command: 0x%08X  result:%d\n", command, ret);
+
+	return count; // procfs_buffer_size;
+}
+#endif // #ifdef _ENABLE_DBG_LEV
+
 static int sis_ts_probe(
 	struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -1672,12 +1748,17 @@ static int sis_ts_probe(
 			goto err_power_failed;
 		}
 	}
-	
-	// check sis IC
+
+       tegra_gpio_enable(TOUCH_PMIC_5V_POWER);
+       gpio_request(TOUCH_PMIC_5V_POWER, "touch_5v_power");
+       gpio_direction_output(TOUCH_PMIC_5V_POWER, 1);
+       gpio_set_value(TOUCH_PMIC_5V_POWER, 1);
+       msleep(1250);
+	/*// check sis IC
 	ret = sis_command_for_read(client, PACKET_BUFFER_SIZE, buf);
 	if (ret < 0){
 		goto err_input_dev_alloc_failed;
-	}
+	}*/
       // Get Firmware info
       ret = sis_command_for_write(client, 14, fw_info_cmd);
       msleep(2);
@@ -1817,7 +1898,23 @@ static int sis_ts_probe(
 	if (ret) {
 	    dev_err(&client->dev, "SIS stress test: Unable to register %s \\misc device\n", stress_misc_dev.name);
 	}
-#endif	  
+#endif	 
+
+#ifdef _ENABLE_DBG_LEVEL
+	dbgProcFile = create_proc_entry(PROC_FS_NAME, 0666, NULL);
+	if (dbgProcFile == NULL) 
+	{
+		remove_proc_entry(PROC_FS_NAME, NULL);
+		printk(" Could not initialize /proc/%s\n", PROC_FS_NAME);
+	}
+	else
+	{
+		dbgProcFile->read_proc = sis_proc_read;
+		dbgProcFile->write_proc = sis_proc_write;
+		printk(" /proc/%s created\n", PROC_FS_NAME);
+	}
+#endif // #ifdef _ENABLE_DBG_LEVEL
+
 	return 0;
 
 err_input_register_device_failed:
@@ -1843,6 +1940,9 @@ static int sis_ts_remove(struct i2c_client *client)
 	input_unregister_device(ts->input_dev);
 #ifdef TOUCH_STRESS_TEST
 	misc_deregister(&stress_misc_dev);
+#endif
+#ifdef _ENABLE_DBG_LEVEL
+	remove_proc_entry(PROC_FS_NAME, NULL);
 #endif
 	kfree(ts);
 	return 0;

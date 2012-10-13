@@ -927,12 +927,12 @@ static int sis_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	hid_set_drvdata(hdev, nd);
 
 	//for ioctl
-	ret = sis_setup_chardev(hdev, nd);
-	if(ret)
-	{
+	if(sis_char_class == NULL){
+	    ret = sis_setup_chardev(hdev, nd);
+	    if(ret){
 		printk( KERN_INFO "sis_setup_chardev fail\n");
+	    }
 	}
-
 	ret = hid_parse(hdev);
 	if (ret) {
 		dev_err(&hdev->dev, "parse failed\n");
