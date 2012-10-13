@@ -37,6 +37,7 @@
 #endif
 #include <linux/switch.h>
 #include <mach/board-cardhu-misc.h>
+#include "iCatch7002a.h"
 
 #define I7002A_SDEV_NAME "camera"
 
@@ -58,6 +59,7 @@
 struct switch_dev   i7002a_sdev;
 static unsigned int version_num_in_isp = 0xffffff;
 static unsigned int front_chip_id = 0xABCD;
+static unsigned int b_fw_is_valid = 1;
 
 /* mi1040 format:
  * 0: YUV
@@ -67,7 +69,7 @@ static unsigned int front_chip_id = 0xABCD;
 static unsigned int mi1040_output_format = 0xFF;
 static char g_i7002a_binfile_path[80];
 
-static int dbg_i7002a_page_index = 0;
+static int dbg_i7002a_page_index = 2047;
 
 /* iCatch Camera Firmware Header
  * It locates on the end of the bin file.
@@ -1061,7 +1063,7 @@ void writeUpdateProgresstoFile(int page_left, int total_page_num)
 
 	if(page_left % 32 == 1){
 		printk("%s: page:0x%x; percentage= %d;\n", __FUNCTION__, page_left, percentage);
-		fp_progress = filp_open("/data/isp_fw_update_progress", O_RDWR | O_CREAT, 0);
+		fp_progress = filp_open("/data/isp_fw_update_progress", O_RDWR | O_CREAT, S_IRUGO | S_IWUGO);
 		if ( IS_ERR_OR_NULL(fp_progress) ){
 			filp_close(fp_progress, NULL);
 			printk("%s: open %s fail\n", __FUNCTION__, "/data/isp_fw_update_progress");
@@ -1288,7 +1290,7 @@ unsigned int get_fw_version_in_isp(void)
 	u8 tmp_page[0x100];
 	unsigned int vn = 0xABCDEF;
 	int i = 0;
-	int retry = 10;
+	int retry = 3;
 	bool b_ok;
 
 	for (i = 0; i < retry; i++) {
@@ -1299,11 +1301,14 @@ unsigned int get_fw_version_in_isp(void)
 		get_one_page_from_i7002a(2047, tmp_page);
 
 		/* The header format looks like:
-		 * FF FF FF FF FF FF FF XX XX XX XX XX XX XX XX
+		 * FF FF FF FF FF FF FF FF XX XX XX XX XX XX XX
 		 * FF FF FF FF FF XX XX XX XX XX XX XX XX XX XX
 		 */
 		for (j = 0; j < 8; j++) {
-			if (tmp_page[0x100 - BIN_FILE_HEADER_SIZE +j] != 0xFF) {
+			if (tmp_page[0x100 - BIN_FILE_HEADER_SIZE + j] != 0xFF) {
+				printk("%s: tmp_page[0xX]= %02X\n", __FUNCTION__,
+					0x100 - BIN_FILE_HEADER_SIZE + j,
+					tmp_page[0x100 - BIN_FILE_HEADER_SIZE + j]);
 				b_ok = false;
 				break;
 			}
@@ -1874,7 +1879,7 @@ static long sensor_ioctl(struct file *file,
           }
 */
           err = sensor_write_reg(info->i2c_client, 0x714F, 0x00);//release focus
-          err = sensor_write_reg(info->i2c_client, 0x710E, 0x00);//Seems default AE window size
+          //err = sensor_write_reg(info->i2c_client, 0x710E, 0x00);//Seems default AE window size
           touch_mode = TOUCH_STATUS_OFF;
           if (err)
             return err;
@@ -1994,39 +1999,27 @@ static long sensor_ioctl(struct file *file,
       return 0;
     }
 
-    case SENSOR_CUSTOM_IOCTL_GET_EV:
-    {
-      short ev;
-      u16 val;
-/*
-      err = sensor_read_reg(info->i2c_client, 0x3a10, &val);
+	case SENSOR_CUSTOM_IOCTL_GET_EV:
+	{
+		int EV;
+		u16 tmp;
+		printk("SENSOR_CUSTOM_IOCTL_GET_EV\n");
+		/* [0x72b4] will return a number from 12 to 0.
+		 * It stands for "EV-2 ~ EV+2".
+		 */
 
-      printk("GET_EV: val=0x%X\n",val);
+		sensor_read_reg(info->i2c_client, 0x72b4, &tmp);
 
-      if (err)
-        return err;
+		EV = 6 - tmp;
+		printk("GET_EV: [0x72b4]:0x%X;\n", EV);
 
-      printk("GET_EV: val=0x%X\n",val);
+		if (copy_to_user((const void __user *)arg, &EV, sizeof(EV)))
+		{
+			return -EFAULT;
+		}
 
-      if (val <= 0x08)
-        ev=-2;
-      else if (val <= 0x18)
-        ev=-1;
-      else if (val <= 0x30)
-        ev=0;
-      else if (val <= 0x48)
-        ev=1;
-      else if (val > 0x48)
-        ev=2;
-      if (copy_to_user((const void __user *)arg, &ev, sizeof(short)))
-      {
-        return -EFAULT;
-      }
-      if (err)
-        return err;
-*/
-      return 0;
-    }
+		return 0;
+	}
 	case SENSOR_CUSTOM_IOCTL_GET_ISO:
 	{
 		short iso;
@@ -2121,7 +2114,7 @@ static long sensor_ioctl(struct file *file,
             if(touch_mode != TOUCH_STATUS_OFF){
                 touch_mode = TOUCH_STATUS_OFF;
                 printk("SENSOR_CUSTOM_IOCTL_SET_TOUCH_AF: Cancel touch af\n");
-                err = sensor_write_reg(info->i2c_client, 0x710E, 0x00);//Seems default AE window size
+                //err = sensor_write_reg(info->i2c_client, 0x710E, 0x00);//Seems default AE window size
                 err = sensor_write_reg(info->i2c_client, 0x714F, 0x00);//release focus
                 /*
                 if(!caf_mode){
@@ -2233,6 +2226,30 @@ static long sensor_ioctl(struct file *file,
           return err;
         return 0;
     }
+    case SENSOR_CUSTOM_IOCTL_SET_ICATCH_AE_WINDOW:
+    {
+            custom_ae_win_cmd_package ae_win;
+            if (copy_from_user(&ae_win,(const void __user *)arg,
+                    sizeof(custom_ae_win_cmd_package))) {
+                return -EFAULT;
+            }
+            printk("SET_AE_WINDOW as start at 0x%X, width is 0x%X\n", ae_win.win_x, ae_win.win_w);
+            if (ae_win.zoom==0) //default AE window
+              err = sensor_write_reg(info->i2c_client, 0x7188, 0x00);//ROI off
+            else {
+              //AE window
+              err = sensor_write_reg(info->i2c_client, 0x7188, 0x01);//ROI on
+              err = sensor_write_reg(info->i2c_client, 0x7148, (ae_win.win_w)>>8);
+              err = sensor_write_reg(info->i2c_client, 0x7149, (ae_win.win_w)&0xff);
+              err = sensor_write_reg(info->i2c_client, 0x714A, (ae_win.win_x)>>8);
+              err = sensor_write_reg(info->i2c_client, 0x714B, (ae_win.win_x)&0xff);
+              err = sensor_write_reg(info->i2c_client, 0x714C, (ae_win.win_y)>>8);
+              err = sensor_write_reg(info->i2c_client, 0x714D, (ae_win.win_y)&0xff);
+            }
+            if (err)
+              return err;
+            break;
+    }
     case SENSOR_CUSTOM_IOCTL_SET_AE_LOCK:
     {
             u32 ae_lock;
@@ -2243,14 +2260,16 @@ static long sensor_ioctl(struct file *file,
             //ae_mode = ae_lock;
             printk("SET_AE_LOCK as 0x%x\n", ae_lock);
             if (ae_lock==1) {
-              sensor_write_reg(info->i2c_client, 0x71E4, 0x04);//AE command
-              sensor_write_reg(info->i2c_client, 0x71E5, 0x01);//AE lock
-              sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              //sensor_write_reg(info->i2c_client, 0x71E4, 0x04);//AE command
+              //sensor_write_reg(info->i2c_client, 0x71E5, 0x01);//AE lock
+              //sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              sensor_write_reg(info->i2c_client, 0x71EB, 0x03);
             }
             else if (ae_lock==0) {
-              sensor_write_reg(info->i2c_client, 0x71E4, 0x04);//AE command
-              sensor_write_reg(info->i2c_client, 0x71E5, 0x02);//AE unlock
-              sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              //sensor_write_reg(info->i2c_client, 0x71E4, 0x04);//AE command
+              //sensor_write_reg(info->i2c_client, 0x71E5, 0x02);//AE unlock
+              //sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              sensor_write_reg(info->i2c_client, 0x71EB, 0x05);
             }
             break;
     }
@@ -2264,14 +2283,16 @@ static long sensor_ioctl(struct file *file,
             //awb_mode = awb_lock;
             printk("SET_AWB_LOCK as 0x%x\n", awb_lock);
             if (awb_lock==1) {
-              sensor_write_reg(info->i2c_client, 0x71E4, 0x05);//AWB command
-              sensor_write_reg(info->i2c_client, 0x71E5, 0x01);//AWB lock
-              sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              //sensor_write_reg(info->i2c_client, 0x71E4, 0x05);//AWB command
+              //sensor_write_reg(info->i2c_client, 0x71E5, 0x01);//AWB lock
+              //sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              sensor_write_reg(info->i2c_client, 0x71EB, 0x04);
             }
             else if (awb_lock==0) {
-              sensor_write_reg(info->i2c_client, 0x71E4, 0x05);//AWB command
-              sensor_write_reg(info->i2c_client, 0x71E5, 0x02);//AWB unlock
-              sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              //sensor_write_reg(info->i2c_client, 0x71E4, 0x05);//AWB command
+              //sensor_write_reg(info->i2c_client, 0x71E5, 0x02);//AWB unlock
+              //sensor_write_reg(info->i2c_client, 0x71E8, 0x01);
+              sensor_write_reg(info->i2c_client, 0x71EB, 0x06);
             }
             break;
     }
@@ -2843,6 +2864,131 @@ static ssize_t dbg_i7002a_page_dump_read(struct file *file, char __user *buf, si
 	return tot;
 }
 
+static ssize_t dbg_i7002a_fw_header_dump_open(struct inode *inode, struct file *file)
+{
+	file->private_data = inode->i_private;
+	return 0;
+}
+
+#define DUMP_HEADER(mypage) do {	\
+		for(i = 0; i < 0x100; i++) {	\
+			if(i%16 == 0) {	\
+				len = snprintf(bp, dlen, "[%02X] ", i);	\
+				tot += len; bp += len; dlen -= len;	\
+			}	\
+			len = snprintf(bp, dlen, "%02X ", mypage[i]);	\
+			tot += len; bp += len; dlen -= len;	\
+			if(i%16 == 15) {	\
+				len = snprintf(bp, dlen, "\n");	\
+				tot += len; bp += len; dlen -= len;	\
+			}	\
+		}	\
+	} while (0)
+
+
+static ssize_t dbg_i7002a_fw_header_dump_read(struct file *file, char __user *buf, size_t count,
+				loff_t *ppos)
+{
+	int len = 0;
+	int tot = 0;
+	char debug_buf[3072];
+	int dlen = sizeof(debug_buf);
+	char *bp = debug_buf;
+	int i =0;
+	u8 fw1page[0x100];
+	u8 fw2page[0x100];
+	u8 overallpage[0x100];
+	int fw2_header_page_index, fw2_offset = 0;
+
+	printk("%s: buf=%p, count=%d, ppos=%p; *ppos= %d\n", __FUNCTION__, buf, count, ppos, *ppos);
+
+	if (*ppos)
+		return 0;	/* the end */
+
+	i7002a_isp_on(1);
+
+	/* dump fw1 header */
+	get_one_page_from_i7002a(0, fw1page);
+	len = snprintf(bp, dlen, "fw1: page[%d]:\n", 0);
+	tot += len; bp += len; dlen -= len;
+	DUMP_HEADER(fw1page);
+
+	msleep(40);
+
+	/* dump fw2 header */
+	fw2_offset = 16 +
+		((fw1page[3] << 24) | (fw1page[2] << 16) | (fw1page[1] << 8) | fw1page[0]) +
+		((fw1page[7] << 24) | (fw1page[6] << 16) | (fw1page[5] << 8) | fw1page[4]);
+	fw2_header_page_index = fw2_offset >> 8;
+	get_one_page_from_i7002a(fw2_header_page_index, fw2page);
+	len = snprintf(bp, dlen, "fw2: page[%d]:\n", fw2_header_page_index);
+	tot += len; bp += len; dlen -= len;
+	DUMP_HEADER(fw2page);
+
+	msleep(40);
+
+	/* dump overall header */
+	get_one_page_from_i7002a(2047, overallpage);
+	len = snprintf(bp, dlen, "Overall: page[%d]:\n", 2047);
+	tot += len; bp += len; dlen -= len;
+	DUMP_HEADER(overallpage);
+
+	if (front_chip_id == SENSOR_ID_OV2720) {
+		if(memcmp(ov2720_fw1page_0_1_21, fw1page, 0x100) == 0) {
+			if(memcmp(ov2720_fw2page_0_1_21, fw2page, 0x100) == 0) {
+				if(memcmp(ov2720_overallpage_0_1_21, overallpage, 0x100) == 0) {
+					b_fw_is_valid = 1;
+				} else {
+					len = snprintf(bp, dlen, "%s(%d): wrong overall page.\n", __FUNCTION__, __LINE__);
+					tot += len; bp += len; dlen -= len;
+					b_fw_is_valid = 0;
+				}
+			} else {
+				len = snprintf(bp, dlen, "%s(%d): wrong fw2 page.\n", __FUNCTION__, __LINE__);
+				tot += len; bp += len; dlen -= len;
+				b_fw_is_valid = 0;
+			}
+		} else {
+			len = snprintf(bp, dlen, "%s(%d): wrong fw1 page.\n", __FUNCTION__, __LINE__);
+			tot += len; bp += len; dlen -= len;
+			b_fw_is_valid = 0;
+		}
+	} else if (front_chip_id == SENSOR_ID_MI1040) {
+		if(memcmp(mi1040_fw1page_0_1_21, fw1page, 0x100) == 0) {
+			if(memcmp(mi1040_fw2page_0_1_21, fw2page, 0x100) == 0) {
+				if(memcmp(mi1040_overallpage_0_1_21, overallpage, 0x100) == 0) {
+					b_fw_is_valid = 1;
+				} else {
+					len = snprintf(bp, dlen, "%s(%d): wrong overall page.\n", __FUNCTION__, __LINE__);
+					tot += len; bp += len; dlen -= len;
+					b_fw_is_valid = 0;
+				}
+			} else {
+				len = snprintf(bp, dlen, "%s(%d): wrong fw2 page.\n", __FUNCTION__, __LINE__);
+				tot += len; bp += len; dlen -= len;
+				b_fw_is_valid = 0;
+			}
+		} else {
+			len = snprintf(bp, dlen, "%s(%d): wrong fw1 page.\n", __FUNCTION__, __LINE__);
+			tot += len; bp += len; dlen -= len;
+			b_fw_is_valid = 0;
+		}
+	} else {
+		len = snprintf(bp, dlen, "%s(%d): Unknown Front Camera ID.\n", __FUNCTION__, __LINE__);
+		tot += len; bp += len; dlen -= len;
+		b_fw_is_valid = 0;
+	}
+
+	i7002a_isp_on(0);
+
+	if (copy_to_user(buf, debug_buf, tot))
+		return -EFAULT;
+	if (tot < 0)
+		return 0;
+	*ppos += tot;	/* increase offset */
+	return tot;
+}
+
 static ssize_t dbg_fw_update_open(struct inode *inode, struct file *file)
 {
 	file->private_data = inode->i_private;
@@ -3354,6 +3500,11 @@ static const struct file_operations dbg_iCatch7002a_camera_status_fops = {
 	.read		= dbg_iCatch7002a_camera_status_read,
 };
 
+static const struct file_operations dbg_i7002a_fw_header_dump_fops = {
+	.open		= dbg_i7002a_fw_header_dump_open,
+	.read		= dbg_i7002a_fw_header_dump_read,
+};
+
 static const struct file_operations iCatch7002a_power_fops = {
 	.open		= dbg_iCatch7002a_chip_power_open,
 	//.read		= i2c_get_read,
@@ -3370,11 +3521,17 @@ static const struct file_operations iCatch7002a_power_fops = {
 	(void) debugfs_create_file("page_dump", S_IRUGO | S_IWUSR,
 					dent, NULL, &dbg_i7002a_page_dump_fops);
 
+	(void) debugfs_create_file("fw_header_dump", S_IRUGO | S_IWUSR,
+					dent, NULL, &dbg_i7002a_fw_header_dump_fops);
+
 	(void) debugfs_create_file("fw_update", S_IRUGO | S_IWUSR,
 					dent, NULL, &dbg_fw_update_fops);
 
 	(void) debugfs_create_file("i2c_set", S_IRUGO | S_IWUSR,
 					dent, NULL, &i2c_set_fops);
+
+	debugfs_create_u32("b_fw_is_valid", S_IRUGO | S_IWUSR, dent, &b_fw_is_valid);
+
 	(void) debugfs_create_file("i2c_get", S_IRUGO | S_IWUSR,
 					dent, NULL, &i2c_get_fops);
 	(void) debugfs_create_file("camera_status", S_IRUGO, dent, NULL, &dbg_iCatch7002a_camera_status_fops);

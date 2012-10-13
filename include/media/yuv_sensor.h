@@ -66,7 +66,9 @@ enum {
     ASUS_CUSTOM_IOCTL_GET_AE_LOCK,
     ASUS_CUSTOM_IOCTL_GET_AWB_LOCK,
     ASUS_CUSTOM_IOCTL_INITIAL,
-    ASUS_CUSTOM_IOCTL_SET_AF_CONTROL
+    ASUS_CUSTOM_IOCTL_SET_AF_CONTROL,
+    ASUS_CUSTOM_IOCTL_SET_TOUCH_AE,
+    ASUS_CUSTOM_IOCTL_SET_ICATCH_AE_WINDOW,
 };
 
 enum {
@@ -98,6 +100,15 @@ typedef struct
     int win_y;
     int zoom;
 } custom_touch_af_cmd_package;
+
+typedef struct
+{
+    int win_w;
+    int win_h;
+    int win_x;
+    int win_y;
+    int zoom;
+} custom_ae_win_cmd_package;
 
 typedef struct
 {
@@ -171,6 +182,8 @@ typedef enum {
 #define SENSOR_CUSTOM_IOCTL_GET_AWB_LOCK      _IOWR('o', ASUS_CUSTOM_IOCTL_GET_AWB_LOCK, __u32)
 #define SENSOR_CUSTOM_IOCTL_INITIAL           _IOWR('o', ASUS_CUSTOM_IOCTL_INITIAL, __u32)
 #define SENSOR_CUSTOM_IOCTL_SET_AF_CONTROL _IOW('o', ASUS_CUSTOM_IOCTL_SET_AF_CONTROL, __s16)
+#define SENSOR_CUSTOM_IOCTL_SET_TOUCH_AE      _IOWR('o', ASUS_CUSTOM_IOCTL_SET_TOUCH_AE, custom_ae_win_cmd_package)
+#define SENSOR_CUSTOM_IOCTL_SET_ICATCH_AE_WINDOW     _IOW('o', ASUS_CUSTOM_IOCTL_SET_ICATCH_AE_WINDOW, custom_ae_win_cmd_package)
 
 enum {
     YUV_ColorEffect = 0,

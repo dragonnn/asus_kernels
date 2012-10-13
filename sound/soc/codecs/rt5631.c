@@ -32,6 +32,8 @@
 
 #include "rt5631.h"
 
+#define RT5631_PWR_ADC_L_CLK (1 << 11)
+
 #define AUDIO_IOC_MAGIC	0xf7
 #define AUDIO_IOC_MAXNR	6
 #define AUDIO_STRESS_TEST	_IOW(AUDIO_IOC_MAGIC, 1,int)
@@ -70,6 +72,7 @@ struct rt5631_priv {
 	int pll_used_flag;
 };
 
+static int pw_ladc=0;
 static struct snd_soc_codec *rt5631_codec;
 static const u16 rt5631_reg[0x80];
 static int timesofbclk = 64;
@@ -466,16 +469,23 @@ static void rt5631_update_eqmode(struct snd_soc_codec *codec, int mode)
 		/* Fill and update EQ parameter,
 		 * and EQ block are enabled.
 		 */
+		rt5631_write_mask(codec, RT5631_PWR_MANAG_ADD1,RT5631_PWR_ADC_L_CLK ,
+			RT5631_PWR_ADC_L_CLK );
 		rt5631_write_index_mask(codec, RT5631_EQ_PRE_VOL_CTRL
 						, 0x8000, 0x8000);
-		rt5631_write(codec, RT5631_EQ_CTRL,
-			hweq_preset[mode].ctrl);
+		snd_soc_write(codec, RT5631_EQ_CTRL,0x8000);
 		for (i = RT5631_EQ_BW_LOP; i <= RT5631_EQ_HPF_GAIN; i++)
 			rt5631_write_index(codec, i,
 				hweq_preset[mode].value[i]);
 		rt5631_write_index(codec, RT5631_EQ_PRE_VOL_CTRL, hweq_preset[mode].EqInVol); //set EQ input volume
 		rt5631_write_index(codec, RT5631_EQ_POST_VOL_CTRL, hweq_preset[mode].EqOutVol); //set EQ output volume
-		rt5631_write_mask(codec, RT5631_EQ_CTRL, 0x4000, 0x4000);
+		snd_soc_write(codec, RT5631_EQ_CTRL, hweq_preset[mode].ctrl | 0xc000);
+		if((hweq_preset[mode].ctrl & 0x8000))
+			rt5631_write_mask(codec, RT5631_EQ_CTRL, 0x8000, 0xc000);
+		else
+			rt5631_write_mask(codec, RT5631_EQ_CTRL, 0x0000, 0xc000);
+		if(!pw_ladc)
+			rt5631_write_mask(codec, RT5631_PWR_MANAG_ADD1, 0, RT5631_PWR_ADC_L_CLK );
 	}
 
 	return;
@@ -536,11 +546,11 @@ static int rt5631_set_gain(struct snd_kcontrol *kcontrol,
 		#endif
 		/* set dmic gain */
 		if(output_source==OUTPUT_SOURCE_VOICE || input_source==INPUT_SOURCE_VR || input_agc==INPUT_SOURCE_AGC){
-			printk("%s(): use dsp for capture gain = 0dB\n", __func__);
+			printk("%s(): use dsp for capture gain\n", __func__);
 			rt5631_write_mask(codec, RT5631_ADC_CTRL_1, 0x0000, 0x001f);	//boost 0dB
 		}else{
-			printk("%s(): use codec for capture gain = 28.5dB\n", __func__);
-			rt5631_write_mask(codec, RT5631_ADC_CTRL_1, 0x0013, 0x001f);    //boost 28.5dB
+			printk("%s(): use codec for capture gain\n", __func__);
+			rt5631_write_mask(codec, RT5631_ADC_CTRL_1, 0x000f, 0x001f);    //boost 22.5dB
 		}
 	}
 	mutex_unlock(&codec->mutex);
@@ -1181,6 +1191,7 @@ static int adc_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMD:
+		pw_ladc = 0;
 		if (pmu) {
 			config_common_power(codec, false);
 			pmu = false;
@@ -1195,6 +1206,8 @@ static int adc_event(struct snd_soc_dapm_widget *w,
 		break;
 
 	case SND_SOC_DAPM_POST_PMU:
+		pw_ladc = 1;
+
 		#if ENABLE_ALC
 		printk("adc_event --ALC_SND_SOC_DAPM_POST_PMU\n");
 		ADC_flag = true;

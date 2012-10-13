@@ -42,6 +42,8 @@
 		
 #define PWR_STATE_DEEP_SLEEP	0
 #define PWR_STATE_NORMAL		1
+#define PWR_NORMAL_STATE 8
+#define PWR_IDLE_STATE 1
 #define PWR_STATE_MASK			BIT(3)
 
 #define CMD_S_PKT			0x52
@@ -132,10 +134,11 @@ struct elan_ktf3k_ts_data {
 };
 
 static struct elan_ktf3k_ts_data *private_ts = NULL;
-static int __fw_packet_handler(struct i2c_client *client);
+static int __fw_packet_handler(struct i2c_client *client, int imediate);
 static int elan_ktf3k_ts_rough_calibrate(struct i2c_client *client);
 static int elan_ktf3k_ts_hw_reset(struct i2c_client *client);
 static int elan_ktf3k_ts_resume(struct i2c_client *client);
+static struct semaphore pSem;
 
 // For Firmware Update 
 /* Todo: (1) Need to Add the lock mechanism
@@ -228,19 +231,23 @@ static long elan_iap_ioctl(/*struct inode *inode,*/ struct file *filp,    unsign
 			return RECOVERY;
 			break;
 		case IOCTL_FW_VER:
-			__fw_packet_handler(private_ts->client);
+			__fw_packet_handler(private_ts->client, work_lock);
+			mdelay(100);
 			return FW_VERSION;
 			break;
 		case IOCTL_X_RESOLUTION:
-			__fw_packet_handler(private_ts->client);
+			__fw_packet_handler(private_ts->client, work_lock);
+			mdelay(100);
 			return X_RESOLUTION;
 			break;
 		case IOCTL_Y_RESOLUTION:
-			__fw_packet_handler(private_ts->client);
+			__fw_packet_handler(private_ts->client, work_lock);
+			mdelay(100);
 			return Y_RESOLUTION;
 			break;
 		case IOCTL_FW_ID:
-			__fw_packet_handler(private_ts->client);
+			__fw_packet_handler(private_ts->client, work_lock);
+			mdelay(100);
 			return FW_ID;
 			break;
 		case IOCTL_ROUGH_CALIBRATE:
@@ -266,6 +273,25 @@ struct file_operations elan_touch_fops = {
  };
 
 // End Firmware Update
+
+/* Detect old / new FW */
+static int isOldFW(struct i2c_client *client)
+{
+        //struct elan_ktf2k_ts_data *ts = private_ts;
+        struct elan_ktf3k_ts_data *ts = i2c_get_clientdata(client);
+        
+	//msleep(90);
+        printk(KERN_DEBUG "[elan] GPIO_TP_INT_N=%d\n", ts->intr_gpio);
+	if (gpio_get_value(ts->intr_gpio) == 0) 
+        {
+		// Old FW 
+		printk(KERN_EMERG "[elan]detect intr=>Old FW\n");
+		return 1;
+	}
+        else
+                return 0;
+
+}
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void elan_ktf3k_ts_early_suspend(struct early_suspend *h);
@@ -352,7 +378,7 @@ static void elan_touch_sysfs_deinit(void)
 static int __elan_ktf3k_ts_poll(struct i2c_client *client)
 {
 	struct elan_ktf3k_ts_data *ts = i2c_get_clientdata(client);
-	int status = 0, retry = 10;
+	int status = 0, retry = 100;
 
 	do {
 		status = gpio_get_value(ts->intr_gpio);
@@ -381,21 +407,23 @@ static int elan_ktf3k_ts_get_data(struct i2c_client *client, uint8_t *cmd,
 	if (buf == NULL)
 		return -EINVAL;
 
-	if ((i2c_master_send(client, cmd, 4)) != 4) {
-		dev_err(&client->dev,
+      down(&pSem);
+      rc = i2c_master_send(client, cmd, 4);
+      up(&pSem);
+	if(rc != 4){
+	    dev_err(&client->dev,
 			"[elan]%s: i2c_master_send failed\n", __func__);
-		return -EINVAL;
+	    return -EINVAL;
 	}
-
-	rc = elan_ktf3k_ts_poll(client);
-	if (rc < 0)
-		return -EINVAL;
-	else {
-		if (i2c_master_recv(client, buf, size) != size ||
-		    buf[0] != CMD_S_PKT)
-		        return -EINVAL;
+      down(&pSem);
+      rc  = i2c_master_recv(client, buf, size);
+      up(&pSem);       
+	if(rc != size){
+	    dev_err(&client->dev,
+			"[elan]%s: i2c_master_read failed\n", __func__);
+	    return -EINVAL;
 	}
-
+	
 	return 0;
 }
 
@@ -405,6 +433,7 @@ static int elan_ktf3k_ts_read_command(struct i2c_client *client,
 	struct i2c_msg msg[2];
 	__le16 le_addr;
 	struct elan_ktf3k_ts_data *ts;
+	int length = 0;
 
 	ts = i2c_get_clientdata(client);
 
@@ -417,7 +446,35 @@ static int elan_ktf3k_ts_read_command(struct i2c_client *client,
 	msg[1].flags = I2C_M_RD;
 	msg[1].len = value_length;
 	msg[1].buf = (u8 *) value;
-	if (i2c_transfer(adapter, msg, 2) == 2)
+	down(&pSem);
+	length = i2c_transfer(adapter, msg, 1);
+	up(&pSem);
+	
+	if (length == 1) // only send on packet
+		return value_length;
+	else
+		return -EIO;
+}
+
+static int elan_ktf3k_i2c_read_packet(struct i2c_client *client, 
+	u8 *value, u16 value_length){
+       struct i2c_adapter *adapter = client->adapter;
+	struct i2c_msg msg[1];
+	__le16 le_addr;
+	struct elan_ktf3k_ts_data *ts;
+	int length = 0;
+
+	ts = i2c_get_clientdata(client);
+
+	msg[0].addr = client->addr;
+	msg[0].flags = I2C_M_RD;
+	msg[0].len = value_length;
+	msg[0].buf = (u8 *) value;
+	down(&pSem);
+	length = i2c_transfer(adapter, msg, 1);
+	up(&pSem);
+	
+	if (length == 1) // only send on packet
 		return value_length;
 	else
 		return -EIO;
@@ -453,7 +510,7 @@ static int __hello_packet_handler(struct i2c_client *client)
 	return 0;
 }
 
-static int __fw_packet_handler(struct i2c_client *client)
+static int __fw_packet_handler(struct i2c_client *client, int immediate)
 {
 	struct elan_ktf3k_ts_data *ts = i2c_get_clientdata(client);
 	int rc;
@@ -467,40 +524,52 @@ static int __fw_packet_handler(struct i2c_client *client)
 	rc = elan_ktf3k_ts_read_command(client, cmd, 4, buf_recv, 4);
 	if (rc < 0)
 		return rc;
-	major = ((buf_recv[1] & 0x0f) << 4) | ((buf_recv[2] & 0xf0) >> 4);
-	minor = ((buf_recv[2] & 0x0f) << 4) | ((buf_recv[3] & 0xf0) >> 4);
-	ts->fw_ver = major << 8 | minor;
-	FW_VERSION = ts->fw_ver;
+	
+	if(immediate){
+	    elan_ktf3k_i2c_read_packet(client, buf_recv, 4);
+	    major = ((buf_recv[1] & 0x0f) << 4) | ((buf_recv[2] & 0xf0) >> 4);
+	    minor = ((buf_recv[2] & 0x0f) << 4) | ((buf_recv[3] & 0xf0) >> 4);
+	    ts->fw_ver = major << 8 | minor;
+	    FW_VERSION = ts->fw_ver;
+	    dev_info(&client->dev, "[elan] %s: firmware version: 0x%4.4x\n", __func__, ts->fw_ver);
+	}
 // X Resolution
 	rc = elan_ktf3k_ts_read_command(client, cmd_x, 4, buf_recv, 4);
 	if (rc < 0)
 		return rc;
-	minor = ((buf_recv[2])) | ((buf_recv[3] & 0xf0) << 4);
-	ts->x_resolution =minor;
-	X_RESOLUTION = ts->x_resolution;
+	
+	if(immediate){
+	    elan_ktf3k_i2c_read_packet(client, buf_recv, 4);
+	    minor = ((buf_recv[2])) | ((buf_recv[3] & 0xf0) << 4);
+	    ts->x_resolution =minor;
+	    X_RESOLUTION = ts->x_resolution;
+	    dev_info(&client->dev, "[elan] %s: X resolution: 0x%4.4x\n", __func__, ts->x_resolution);
+	}
 // Y Resolution	
 	rc = elan_ktf3k_ts_read_command(client, cmd_y, 4, buf_recv, 4);
 	if (rc < 0)
 		return rc;
-	minor = ((buf_recv[2])) | ((buf_recv[3] & 0xf0) << 4);
-	ts->y_resolution =minor;
-	Y_RESOLUTION = ts->y_resolution;
+	
+	if(immediate){
+	    elan_ktf3k_i2c_read_packet(client, buf_recv, 4);
+	    minor = ((buf_recv[2])) | ((buf_recv[3] & 0xf0) << 4);
+	    ts->y_resolution =minor;
+	    Y_RESOLUTION = ts->y_resolution;
+	    dev_info(&client->dev, "[elan] %s: Y resolution: 0x%4.4x\n", __func__, ts->y_resolution);
+	}
 // Firmware ID
 	rc = elan_ktf3k_ts_read_command(client, cmd_id, 4, buf_recv, 4);
 	if (rc < 0)
 		return rc;
-	major = ((buf_recv[1] & 0x0f) << 4) | ((buf_recv[2] & 0xf0) >> 4);
-	minor = ((buf_recv[2] & 0x0f) << 4) | ((buf_recv[3] & 0xf0) >> 4);
-	ts->fw_id = major << 8 | minor;
-	FW_ID = ts->fw_id;
-
-	printk(KERN_INFO "[elan] %s: firmware version: 0x%4.4x\n",
-			__func__, ts->fw_ver);
-	printk(KERN_INFO "[elan] %s: firmware ID: 0x%4.4x\n",
-			__func__, ts->fw_id);
-	printk(KERN_INFO "[elan] %s: x resolution: %d, y resolution: %d\n",
-			__func__, ts->x_resolution, ts->y_resolution);
 	
+	if(immediate){
+	    elan_ktf3k_i2c_read_packet(client, buf_recv, 4);
+	    major = ((buf_recv[1] & 0x0f) << 4) | ((buf_recv[2] & 0xf0) >> 4);
+	    minor = ((buf_recv[2] & 0x0f) << 4) | ((buf_recv[3] & 0xf0) >> 4);
+	    ts->fw_id = major << 8 | minor;
+	    FW_ID = ts->fw_id;
+	    dev_info(&client->dev, "[elan] %s: firmware id: 0x%4.4x\n", __func__, ts->fw_id);
+	}
 	return 0;
 }
 
@@ -522,23 +591,64 @@ static inline int elan_ktf3k_ts_parse_xy(uint8_t *data,
 
 static int elan_ktf3k_ts_setup(struct i2c_client *client)
 {
-	int rc;
+	int rc, count = 10;
+#if 0
+        uint8_t command[2][4] = {
+		{0x4D, 0x61, 0x69, 0x6E},	// normal_command
+		{0x45, 0x49, 0x41, 0x50},	// iap_command
+	};
+#endif
+retry:	
+        // Reset
+        elan_ktf3k_ts_hw_reset(client);
+	
+	// Check if old firmware. If not, send the notmal_command to enter normal mode 
+        if( isOldFW(client) == 0 )       //if check is new bootcode
+        {
+#if 0
+                printk("[elan] send msg\n");
+	        if ((i2c_master_send(client, command[0], 4)) != 4) {
+		                          dev_err(&client->dev,
+		                          "[elan]%s: i2c_master_send failed\n", __func__);
+		                            return -EINVAL;
+	        }
+
+		printk("send msg1 Over!!!!!!!!!\n");
+	        client->addr = 0x20;
+                if ((i2c_master_send(client, command[0], 4)) != 4) {
+		                          dev_err(&client->dev,
+		                          "[elan]%s: i2c_master_send failed\n", __func__);
+		                            return -EINVAL;
+	        }
+                client->addr = 0x10;
+	        
+		printk("send msg2 Over!!!!!!!!!\n");
+#endif
+        }
+// For testing
 
 	rc = __hello_packet_handler(client);
-	if (rc < 0)
-		goto hand_shake_failed;
-	dev_info(&client->dev, "[elan] %s: hello packet got.\n", __func__);
-// for firmware update
-	if(rc==0x80)
-	{
-		return rc;
-	}
-// end firmware update
-	rc = __fw_packet_handler(client);
-	if (rc < 0)
-		goto hand_shake_failed;
-	dev_info(&client->dev, "[elan] %s: firmware checking done.\n", __func__);
+	printk("[elan] hello packet's rc = %d\n",rc);
+	
+	if (rc < 0){ 
+               if (rc == -ETIME && count > 0) {
+			count--;
+			dev_err(&client->dev, "wait main hello timeout, reset\n");
+			goto retry;
+		}
+		else
+			goto hand_shake_failed;
 
+	}
+		//
+	dev_dbg(&client->dev, "[elan] %s: hello packet got.\n", __func__);
+
+	mdelay(200);
+	rc = __fw_packet_handler(client, 1);
+	if (rc < 0)
+		goto hand_shake_failed;
+	dev_dbg(&client->dev, "[elan] %s: firmware checking done.\n", __func__);
+// end firmware update
 hand_shake_failed:
 	return rc;
 }
@@ -546,6 +656,7 @@ hand_shake_failed:
 static int elan_ktf3k_ts_set_power_state(struct i2c_client *client, int state)
 {
 	uint8_t cmd[] = {CMD_W_PKT, 0x50, 0x00, 0x01};
+	int length;
 
 	dev_dbg(&client->dev, "[elan] %s: enter\n", __func__);
 
@@ -555,7 +666,10 @@ static int elan_ktf3k_ts_set_power_state(struct i2c_client *client, int state)
 		"[elan] dump cmd: %02x, %02x, %02x, %02x\n",
 		cmd[0], cmd[1], cmd[2], cmd[3]);
 
-	if ((i2c_master_send(client, cmd, sizeof(cmd))) != sizeof(cmd)) {
+      down(&pSem);
+      length = i2c_master_send(client, cmd, sizeof(cmd));
+      up(&pSem);
+	if (length != sizeof(cmd)) {
 		dev_err(&client->dev,
 			"[elan] %s: i2c_master_send failed\n", __func__);
 		return -EINVAL;
@@ -566,14 +680,18 @@ static int elan_ktf3k_ts_set_power_state(struct i2c_client *client, int state)
 
 static int elan_ktf3k_ts_rough_calibrate(struct i2c_client *client){
       uint8_t cmd[] = {CMD_W_PKT, 0x29, 0x00, 0x01};
+      int length;
 
 	//dev_info(&client->dev, "[elan] %s: enter\n", __func__);
 	printk("[elan] %s: enter\n", __func__);
 	dev_info(&client->dev,
 		"[elan] dump cmd: %02x, %02x, %02x, %02x\n",
 		cmd[0], cmd[1], cmd[2], cmd[3]);
-
-	if ((i2c_master_send(client, cmd, sizeof(cmd))) != sizeof(cmd)) {
+	
+	down(&pSem);
+	length = i2c_master_send(client, cmd, sizeof(cmd));
+	up(&pSem);
+	if (length != sizeof(cmd)) {
 		dev_err(&client->dev,
 			"[elan] %s: i2c_master_send failed\n", __func__);
 		return -EINVAL;
@@ -593,8 +711,8 @@ static int elan_ktf3k_ts_get_power_state(struct i2c_client *client)
 		return rc;
 
 	power_state = buf[1];
-	dev_dbg(&client->dev, "[elan] dump repsponse: %0x\n", power_state);
-	power_state = (power_state & PWR_STATE_MASK) >> 3;
+	dev_info(&client->dev, "[elan] dump repsponse: %0x\n", power_state);
+	power_state = power_state & 0x0F;
 	dev_dbg(&client->dev, "[elan] power state = %s\n",
 		power_state == PWR_STATE_DEEP_SLEEP ?
 		"Deep Sleep" : "Normal/Idle");
@@ -617,6 +735,7 @@ static int elan_ktf3k_ts_hw_reset(struct i2c_client *client)
 static int elan_ktf3k_ts_set_power_source(struct i2c_client *client, u8 state)
 {
 	uint8_t cmd[] = {CMD_W_PKT, 0x40, 0x00, 0x01};
+	int length = 0;
 
 	dev_dbg(&client->dev, "[elan] %s: enter\n", __func__);
     /*0x52 0x40 0x00 0x01  =>    Battery Mode
@@ -627,8 +746,11 @@ static int elan_ktf3k_ts_set_power_source(struct i2c_client *client, u8 state)
 	dev_dbg(&client->dev,
 		"[elan] dump cmd: %02x, %02x, %02x, %02x\n",
 		cmd[0], cmd[1], cmd[2], cmd[3]);
-
-	if ((i2c_master_send(client, cmd, sizeof(cmd))) != sizeof(cmd)) {
+	
+      down(&pSem);
+      length = i2c_master_send(client, cmd, sizeof(cmd));
+      up(&pSem);
+	if (length != sizeof(cmd)) {
 		dev_err(&client->dev,
 			"[elan] %s: i2c_master_send failed\n", __func__);
 		return -EINVAL;
@@ -648,12 +770,7 @@ static int elan_ktf3k_ts_get_power_source(struct i2c_client *client)
 	if (rc < 0)
 		return rc;
 
-	power_source = buf[1];
-	dev_dbg(&client->dev, "[elan] get power source : %0x\n", power_source);
-	power_source = (power_source & 0x0F);
-	dev_dbg(&client->dev, "[elan] power source = %d\n", power_source);
-
-	return power_source;
+	return 0;
 }
 
 static void update_power_source(){
@@ -675,13 +792,12 @@ static void update_power_source(){
           elan_ktf3k_ts_set_power_source(private_ts->client, 2);
       }
 
-      power_source = elan_ktf3k_ts_get_power_source(private_ts->client);
-      dev_info(&private_ts->client->dev, "Get power source %d\n", power_source);	  
+      elan_ktf3k_ts_get_power_source(private_ts->client);  
 }
 
 void touch_callback_elan(unsigned cable_status){ 
       now_usb_cable_status = cable_status;
-      update_power_source();
+//      update_power_source();
 }
 
 static int elan_ktf3k_ts_recv_data(struct i2c_client *client, uint8_t *buf, int size)
@@ -785,6 +901,40 @@ static void elan_ktf3k_ts_report_data(struct i2c_client *client, uint8_t *buf)
 	return;
 }
 
+static void process_resp_message(struct elan_ktf3k_ts_data *ts, const unsigned char *buf,
+	                                                      unsigned int size){
+      int major, minor;
+
+      if(buf == NULL) return;
+      switch(buf[1] & 0xF0){
+      case 0x00:// firmware version
+          major = ((buf[1] & 0x0f) << 4) | ((buf[2] & 0xf0) >> 4);
+          minor = ((buf[2] & 0x0f) << 4) | ((buf[3] & 0xf0) >> 4);
+          ts->fw_ver = major << 8 | minor;
+          FW_VERSION = ts->fw_ver;
+          break;
+      case 0x20: // Rough calibrate response
+          major = buf[2] & 0x0F;	  	
+          dev_info(&ts->client->dev, "Get the Rough Calibrate result:%d\n", major);
+          break;
+      case 0x40: // the power source
+          major = buf[1] & 0x0f;
+          dev_info(&ts->client->dev, "Get the power source:%d\n", major);
+      case 0x50: // the power state
+          major = buf[1] & 0x0f;
+          dev_info(&ts->client->dev, "Get the power mode:%d\n", major);
+          break;
+      case 0xF0: // firmware id
+          major = ((buf[1] & 0x0f) << 4) | ((buf[2] & 0xf0) >> 4);
+          minor = ((buf[2] & 0x0f) << 4) | ((buf[3] & 0xf0) >> 4);
+          ts->fw_id = major << 8 | minor;
+          FW_ID = ts->fw_id;
+          break;	   
+      default: 
+          dev_info(&ts->client->dev, "[elan] Get unknow packet {0x%02X, 0x%02X, 0x%02X, 0x%02X}\n", buf[0], buf[1], buf[2], buf[3]);	
+      }
+}
+
 static void elan_ktf3k_ts_work_func(struct work_struct *work)
 {
 	int rc;
@@ -804,20 +954,26 @@ static void elan_ktf3k_ts_work_func(struct work_struct *work)
 		}
 		*/
 	// First package
+	      
 #ifndef ELAN_BUFFER_MODE
 		rc = elan_ktf3k_ts_recv_data(ts->client, buf, 40);
 #else
-		rc = elan_ktf3k_ts_recv_data(ts->client, buf, 44);
+             down(&pSem);
+		rc = elan_ktf3k_ts_recv_data(ts->client, buf, 4); // read the first four bytes
 #endif 
 		if (rc < 0)
 		{
+                   up(&pSem);
 			enable_irq(ts->client->irq);
 			return;
 		}
 #ifndef ELAN_BUFFER_MODE
 		elan_ktf3k_ts_report_data(ts->client, buf);
 #else
-             if(buf[0] == NORMAL_PKT){
+             switch(buf[0]){
+             case NORMAL_PKT:
+		    rc = elan_ktf3k_ts_recv_data(ts->client, buf+4, 40); // read the finger report packet.
+		    up(&pSem);
 		    elan_ktf3k_ts_report_data(ts->client, buf+4);
 	           // Second package
 	 	    if ((buf[1] == 2) || (buf[1] == 3)) {
@@ -838,11 +994,16 @@ static void elan_ktf3k_ts_work_func(struct work_struct *work)
                      }
                      elan_ktf3k_ts_report_data(ts->client, buf2);
                  }
-	      }else{
-	          dev_info(&ts->client->dev, "[elan] Get unknow packet {0x%02X, 0x%02X, 0x%02X, 0x%02X}\n", buf[0], buf[1], buf[2], buf[3]);
-	      }
+		    break;
+             case CMD_S_PKT:
+		    up(&pSem);
+                 process_resp_message(ts, buf, 4);
+		    break;
+		default:
+		    up(&pSem);	
+		    dev_info(&ts->client->dev, "[elan] Get unknow packet {0x%02X, 0x%02X, 0x%02X, 0x%02X}\n", buf[0], buf[1], buf[2], buf[3]);
+	       }		 
 #endif
-
 		enable_irq(ts->client->irq);
 	}
 	return;
@@ -989,6 +1150,7 @@ static int elan_ktf3k_ts_probe(struct i2c_client *client,
 		ts->rst_gpio = pdata->rst_gpio;
 	}
 
+       sema_init(&pSem, 1);
 	err = elan_ktf3k_ts_setup(client);
 	if (err < 0) {
 		printk(KERN_INFO "No Elan chip inside\n");
@@ -1099,7 +1261,7 @@ static int elan_ktf3k_ts_probe(struct i2c_client *client,
   else
     printk("[ELAN]misc_register finished!!");
 // End Firmware Update	
-      update_power_source();
+//    update_power_source();
 	return 0;
 
 err_input_register_device_failed:
@@ -1163,23 +1325,26 @@ static int elan_ktf3k_ts_resume(struct i2c_client *client)
 {
 
 	int rc = 0, retry = 5;
-
+      struct elan_ktf3k_ts_data *ts = i2c_get_clientdata(client);
+      int delay_time;
+	  
 	dev_info(&client->dev, "[elan] %s: enter\n", __func__);
 	if(work_lock == 0){
 	    do {
 		rc = elan_ktf3k_ts_set_power_state(client, PWR_STATE_NORMAL);
 		rc = elan_ktf3k_ts_get_power_state(client);
-		if (rc != PWR_STATE_NORMAL)
+		if (rc != PWR_NORMAL_STATE && rc != PWR_IDLE_STATE)
 			printk(KERN_ERR "[elan] %s: wake up tp failed! err = %d\n",
 				__func__, rc);
 		else
 			break;
 	    } while (--retry);
 	}
-
-	enable_irq(client->irq);
-	mdelay(150); // for ELAN touch needs time to resume from power off mode
-
+	
+	delay_time = (ts->abs_y_max == ELAN_Y_MAX && ts->fw_ver > 0x4817) ? 50 : 150;
+      mdelay(delay_time); // for ELAN touch needs time to resume from power off mode
+      enable_irq(client->irq);
+	
 	return 0;
 }
 

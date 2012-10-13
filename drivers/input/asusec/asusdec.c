@@ -742,7 +742,7 @@ static int asusdec_irq_hall_sensor(struct i2c_client *client)
 		rc = -EIO;
 		goto err_gpio_request_irq_fail ;
 	}
-	enable_irq_wake(irq);
+	//enable_irq_wake(irq);
 	ASUSDEC_INFO("LID irq = %d, rc = %d\n", irq, rc);
 
 	if (gpio_get_value(gpio)){
@@ -1988,7 +1988,8 @@ static int asusdec_resume(struct i2c_client *client){
 		asusdec_reset_dock();
 
 	ec_chip->suspend_state = 0;
-	queue_delayed_work(asusdec_wq, &ec_chip->asusdec_hall_sensor_work, 0);
+	//queue_delayed_work(asusdec_wq, &ec_chip->asusdec_hall_sensor_work, 0);
+	asusdec_lid_report_function(NULL);
 	wake_lock(&ec_chip->wake_lock_init);
 	ec_chip->init_success = 0;
 	queue_delayed_work(asusdec_wq, &ec_chip->asusdec_dock_init_work, 0);

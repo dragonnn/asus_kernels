@@ -215,6 +215,8 @@ int asuspec_battery_monitor(char *cmd){
 			ret_val = (ec_chip->i2c_dm_battery[12] << 8 ) | ec_chip->i2c_dm_battery[11];
 		else if (!strcmp(cmd, "capacity"))
 			ret_val = (ec_chip->i2c_dm_battery[14] << 8 ) | ec_chip->i2c_dm_battery[13];
+		else if (!strcmp(cmd, "remaining_capacity"))
+			ret_val = (ec_chip->i2c_dm_battery[16] << 8 ) | ec_chip->i2c_dm_battery[15];
 		else if (!strcmp(cmd, "avg_time_to_empty"))
 			ret_val = (ec_chip->i2c_dm_battery[18] << 8 ) | ec_chip->i2c_dm_battery[17];
 		else if (!strcmp(cmd, "avg_time_to_full"))
@@ -743,7 +745,7 @@ static ssize_t asuspec_version_show(struct device *class,struct device_attribute
 
 static ssize_t asuspec_battery_show(struct device *class,struct device_attribute *attr,char *buf)
 {
-	int bat_status, bat_temp, bat_vol, bat_current, bat_capacity;
+	int bat_status, bat_temp, bat_vol, bat_current, bat_capacity, remaining_cap;
 	int ret_val;
 	char temp_buf[64];
 
@@ -752,6 +754,7 @@ static ssize_t asuspec_battery_show(struct device *class,struct device_attribute
 	bat_vol = asuspec_battery_monitor("voltage");
 	bat_current = asuspec_battery_monitor("current");
 	bat_capacity = asuspec_battery_monitor("capacity");
+	remaining_cap = asuspec_battery_monitor("remaining_capacity");
 
 	if (ret_val < 0)
 		return sprintf(buf, "fail to get battery info\n");
@@ -765,6 +768,8 @@ static ssize_t asuspec_battery_show(struct device *class,struct device_attribute
 		sprintf(temp_buf, "current = %d\n", bat_current);
 		strcat(buf, temp_buf);
 		sprintf(temp_buf, "capacity = %d\n", bat_capacity);
+		strcat(buf, temp_buf);
+		sprintf(temp_buf, "remaining capacity = %d\n", remaining_cap);
 		strcat(buf, temp_buf);
 
 		return strlen(buf);

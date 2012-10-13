@@ -1547,7 +1547,7 @@ wl_iw_send_priv_event(
 	wrqu.data.length = strlen(extra);
 	wireless_send_event(dev, cmd, &wrqu, extra);
 	net_os_wake_lock_timeout_enable(dev);
-	WL_TRACE(("Send IWEVCUSTOM Event as %s\n", extra));
+	WL_ERROR(("Send IWEVCUSTOM Event as %s\n", extra));
 
 	return 0;
 }

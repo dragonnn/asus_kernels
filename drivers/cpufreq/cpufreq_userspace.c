@@ -80,11 +80,19 @@ void dvfs_stress_test(struct work_struct *work)
 		start_testing=1;
 	}
 	cpu=0;
+
+	if(stress_test_enable)
+		mutex_lock(&userspace_mutex);
+
 	for_each_online_cpu(cpu){
 		if(per_cpu(temp_policy,cpu) && per_cpu(cpu_is_managed, cpu)){
 			cpufreq_set(per_cpu(temp_policy,cpu), cpu_freq_table[freq_index].frequency);
 		}
 	}
+
+	if(stress_test_enable)
+		mutex_unlock(&userspace_mutex);
+
 	freq_index--;
 	if(freq_index<0)
 		freq_index=max_cpu_freq_index;
@@ -212,7 +220,9 @@ static int cpufreq_set(struct cpufreq_policy *policy, unsigned int freq)
 
 	printk("cpufreq_set for cpu %u, freq %u kHz\n", policy->cpu, freq);
 
-	mutex_lock(&userspace_mutex);
+	if(!stress_test_enable)
+		mutex_lock(&userspace_mutex);
+
 	if (!per_cpu(cpu_is_managed, policy->cpu))
 		goto err;
 
@@ -236,7 +246,9 @@ static int cpufreq_set(struct cpufreq_policy *policy, unsigned int freq)
 	ret = __cpufreq_driver_target(policy, freq, CPUFREQ_RELATION_L);
 
  err:
-	mutex_unlock(&userspace_mutex);
+	if(!stress_test_enable)
+		mutex_unlock(&userspace_mutex);
+
 	return ret;
 }
 

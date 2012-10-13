@@ -60,7 +60,10 @@ static int ac_on ;
 static int usb_on ;
 extern unsigned  get_usb_cable_status(void);
 extern int asuspec_battery_monitor(char *cmd);
-
+static unsigned int 	battery_current;
+static unsigned int  battery_remaining_capacity;
+module_param(battery_current, uint, 0644);
+module_param(battery_remaining_capacity, uint, 0644);
 enum {
        REG_MANUFACTURER_DATA,  	
 	REG_STATE_OF_HEALTH,
@@ -546,8 +549,11 @@ static int pad_get_psp(int reg_offset, enum power_supply_property psp,
 	int smb_retry=0;
 	if(pad_device->battery_present){
 			do{
-				if (psp == POWER_SUPPLY_PROP_VOLTAGE_NOW)
+				if (psp == POWER_SUPPLY_PROP_VOLTAGE_NOW){
 					pad_device->smbus_status=pad_device->bat_vol=asuspec_battery_monitor("voltage");
+					battery_current=asuspec_battery_monitor("current");
+					battery_remaining_capacity=asuspec_battery_monitor("remaining_capacity");
+				}
 				else if (psp == POWER_SUPPLY_PROP_STATUS)
 					pad_device->smbus_status=pad_device->bat_status=asuspec_battery_monitor("status");
 				else  if (psp == POWER_SUPPLY_PROP_TEMP)
