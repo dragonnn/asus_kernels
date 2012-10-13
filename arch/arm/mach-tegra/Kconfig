@@ -6,22 +6,24 @@ config TEGRA_OC
 	bool "TF300T CPU Over Clock"
 	depends on TEGRA_EDP_LIMITS
 	default n
+	help
+	  Allow CPU clock rate up to 1.6Ghz
 
 config GPU_OVERCLOCK
 	bool "Enable GPU overclock for Tegra3"
 	depends on TEGRA_SILICON_PLATFORM
 	default n
 	help
-	Choose y to overclock the GPU. 
-	If Off, clock speed is 416MHz.
-	If On, GPU clock speed can be selected.
+	  Choose y to overclock the GPU. 
+	  If Off, clock speed is 416MHz.
+	  If On, GPU clock speed can be selected.
 
 choice
 
 	depends on GPU_OVERCLOCK
 	prompt "Maximum GPU Rate"
 	default GPU_OC_484
-	---help---
+	help
 	  Select the desired GPU overclock rate.
 
 	  If you are not sure what you are doing, leave this
@@ -34,6 +36,13 @@ choice
 		bool "520 MHz"
 
 endchoice
+
+config VOLTAGE_CONTROL
+	bool "Enable user voltage control on Tegra CPU"
+	depends on TEGRA_SILICON_PLATFORM
+	default n
+	help
+	  User custom voltage control interface
 
 config ARCH_TEGRA_2x_SOC
 	bool "Tegra 2 family SOC"
