@@ -1,7 +1,8 @@
 /*
- * arch/arm/mach-tegra/include/mach/harmony_audio.h
+ * Copyright (C) 2010 Google, Inc.
  *
- * Copyright 2011 NVIDIA, Inc.
+ * Author:
+ *	Iliyan Malchev <malchev@google.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -14,9 +15,11 @@
  *
  */
 
-struct harmony_audio_platform_data {
-	int gpio_spkr_en;
-	int gpio_hp_det;
-	int gpio_int_mic_en;
-	int gpio_ext_mic_en;
-};
+#ifndef __ASM_ARCH_TEGRA_FIQ_H
+#define __ASM_ARCH_TEGRA_FIQ_H
+
+/* enable/disable an interrupt that is an FIQ (safe from FIQ context?) */
+void tegra_fiq_enable(int n);
+void tegra_fiq_disable(int n);
+
+#endif
