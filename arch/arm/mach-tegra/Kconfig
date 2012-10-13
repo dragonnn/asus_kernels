@@ -2,6 +2,11 @@ if ARCH_TEGRA
 
 comment "NVIDIA Tegra options"
 
+config TEGRA_OC
+	bool "TF300T CPU Over Clock"
+	depends on TEGRA_EDP_LIMITS
+	default n
+
 config ARCH_TEGRA_2x_SOC
 	bool "Tegra 2 family SOC"
 	default y
@@ -456,6 +461,7 @@ config TEGRA_DYNAMIC_PWRDET
 config TEGRA_EDP_EXACT_FREQ
 	bool "Use maximum possible cpu frequency when EDP capping"
 	depends on TEGRA_EDP_LIMITS
+	depends on !TEGRA_OC
 	default y
 	help
 	  When enabled the cpu will run at the exact frequency
