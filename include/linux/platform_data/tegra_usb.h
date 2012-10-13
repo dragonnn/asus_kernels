@@ -68,6 +68,7 @@ struct tegra_ulpi_config {
  * configuration structure for setting up hsic phy
  */
 struct tegra_hsic_config {
+	int enable_gpio;
 	u8 sync_start_delay;
 	u8 idle_wait_delay;
 	u8 term_range_adj;
