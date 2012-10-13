@@ -352,10 +352,6 @@ void nvsd_init(struct tegra_dc *dc, struct tegra_dc_sd_settings *settings)
 	u32 bw_idx = 0;
 	/* TODO: check if HW says SD's available */
 
-	// disable DIDIM in P1801 since backlight control is not ready
-	if ( settings && tegra3_get_project_id() == TEGRA3_PROJECT_P1801)
-		settings->enable = 0;
-
 	/* If SD's not present or disabled, clear the register and return. */
 	if (!settings || settings->enable == 0) {
 		/* clear the brightness val, too. */

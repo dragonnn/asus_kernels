@@ -56,6 +56,7 @@
 #include "hdmi.h"
 #include <linux/gpio.h>
 #include "../gpio-names.h"
+#include "../clock.h"
 
 #include <linux/pwm.h>
 #include <mach/board-cardhu-misc.h>
@@ -1137,9 +1138,9 @@ static void tegra_dc_underflow_handler(struct tegra_dc *dc)
 #endif
 #ifdef CONFIG_ARCH_TEGRA_3x_SOC
 			if (dc->windows[i].underflows > 4) {
-				printk("%s:dc in underflow state."
+				trace_printk("%s:window %c in underflow state."
 					" enable UF_LINE_FLUSH to clear up\n",
-					__func__);
+					dc->ndev->name, (65 + i));
 				tegra_dc_writel(dc, UF_LINE_FLUSH,
 						DC_DISP_DISP_MISC_CONTROL);
 				tegra_dc_writel(dc, GENERAL_UPDATE,
@@ -1453,14 +1454,18 @@ static bool _tegra_dc_controller_enable(struct tegra_dc *dc)
 	tegra_dc_clk_enable(dc);
 
 	/* do not accept interrupts during initialization */
-	tegra_dc_writel(dc, 0, DC_CMD_INT_ENABLE);
 	tegra_dc_writel(dc, 0, DC_CMD_INT_MASK);
 
 	enable_dc_irq(dc->irq);
 
 	failed_init = tegra_dc_init(dc);
 	if (failed_init) {
-		_tegra_dc_controller_disable(dc);
+		tegra_dc_writel(dc, 0, DC_CMD_INT_MASK);
+		disable_irq(dc->irq);
+		tegra_dc_clear_bandwidth(dc);
+		tegra_dc_clk_disable(dc);
+		if (dc->out && dc->out->disable)
+			dc->out->disable();
 		return false;
 	}
 
@@ -1548,30 +1553,14 @@ static bool _tegra_dc_controller_reset_enable(struct tegra_dc *dc)
 
 static int _tegra_dc_set_default_videomode(struct tegra_dc *dc)
 {
-	return tegra_dc_set_fb_mode(dc, &tegra_dc_hdmi_fallback_mode, 0);
-}
-
-static bool _tegra_dc_enable(struct tegra_dc *dc)
-{
-       if (dc->ndev->id == 0) {
-               struct timeval t_resume;
-               int diff_msec = 0;
-               do_gettimeofday(&t_resume);
-               diff_msec = ((t_resume.tv_sec - t_suspend.tv_sec) * 1000000 +(t_resume.tv_usec - t_suspend.tv_usec)) / 1000;
-               printk("Disp: diff_msec= %d\n", diff_msec);
-               if((diff_msec < 1000) && (diff_msec >= 0))
-                       msleep(1000 - diff_msec);
-       }
-
-
 	if (dc->mode.pclk == 0) {
 		switch (dc->out->type) {
 		case TEGRA_DC_OUT_HDMI:
 		/* DC enable called but no videomode is loaded.
 		     Check if HDMI is connected, then set fallback mdoe */
 		if (tegra_dc_hpd(dc)) {
-			if (_tegra_dc_set_default_videomode(dc))
-				return false;
+			return tegra_dc_set_fb_mode(dc,
+					&tegra_dc_hdmi_fallback_mode, 0);
 		} else
 			return false;
 
@@ -1587,19 +1576,41 @@ static bool _tegra_dc_enable(struct tegra_dc *dc)
 		}
 	}
 
+	return false;
+}
+
+static bool _tegra_dc_enable(struct tegra_dc *dc)
+{
+	if (dc->ndev->id == 0) {
+               struct timeval t_resume;
+               int diff_msec = 0;
+               do_gettimeofday(&t_resume);
+               diff_msec = ((t_resume.tv_sec - t_suspend.tv_sec) * 1000000 +(t_resume.tv_usec - t_suspend.tv_usec)) / 1000;
+               printk("Disp: diff_msec= %d\n", diff_msec);
+               if((diff_msec < 1000) && (diff_msec >= 0))
+                       msleep(1000 - diff_msec);
+       }
+
+	if (dc->mode.pclk == 0)
+		return false;
+
 	if (!dc->out)
 		return false;
 
 	tegra_dc_io_start(dc);
 
-	return _tegra_dc_controller_enable(dc);
+	if (!_tegra_dc_controller_enable(dc)) {
+		tegra_dc_io_end(dc);
+		return false;
+	}
+	return true;
 }
 
 void tegra_dc_enable(struct tegra_dc *dc)
 {
 	mutex_lock(&dc->lock);
 
-	if(isRecording)
+	if(isRecording && (tegra3_get_project_id() == TEGRA3_PROJECT_TF201 || tegra3_get_project_id() == TEGRA3_PROJECT_TF500T))
 		gpio_set_value(cardhu_bl_enb, 1);
 
 	if (!dc->enabled)
@@ -1614,7 +1625,7 @@ static void _tegra_dc_controller_disable(struct tegra_dc *dc)
 	unsigned i;
 
 	// ensure prepoweroff called after backlight set to 0
-	if ( dc->ndev->id==0 && dc->out->sd_settings && dc->out->sd_settings->bl_device && tegra3_get_project_id() != TEGRA3_PROJECT_TF700T) {
+	if ( dc->ndev->id==0 && dc->out->sd_settings && dc->out->sd_settings->bl_device && tegra3_get_project_id() == TEGRA3_PROJECT_TF700T) {
 		struct platform_device *pdev = dc->out->sd_settings->bl_device;
 		struct backlight_device *bl = platform_get_drvdata(pdev);
 		int count = 0;
@@ -1623,6 +1634,10 @@ static void _tegra_dc_controller_disable(struct tegra_dc *dc)
 			count++;
 			msleep(50);
 		}
+	}
+
+	if (dc->ndev->id==0 && gpio_get_value(TEGRA_GPIO_PI6)==1 && tegra3_get_project_id() == TEGRA3_PROJECT_TF700T){	//panel is hydis
+		msleep(200);
 	}
 
 	if (dc->out && dc->out->prepoweroff)
@@ -1752,9 +1767,6 @@ void tegra_dc_disable(struct tegra_dc *dc)
 #ifdef CONFIG_SWITCH
 	switch_set_state(&dc->modeset_switch, 0);
 #endif
-
-	if(isRecording)
-		gpio_set_value(cardhu_bl_enb, 1);
 
 	mutex_unlock(&dc->lock);
 	print_mode_info(dc, dc->mode);
@@ -1915,6 +1927,10 @@ static int tegra_dc_probe(struct nvhost_device *ndev,
 		goto err_put_clk;
 	}
 
+	if (tegra3_get_project_id() == 0x4) {
+		emc_clk->min_rate=(unsigned long)25500000;
+	}
+
 	dc->clk = clk;
 	dc->emc_clk = emc_clk;
 	dc->shift_clk_div = 1;
@@ -1989,8 +2005,10 @@ static int tegra_dc_probe(struct nvhost_device *ndev,
 	}
 
 	mutex_lock(&dc->lock);
-	if (dc->pdata->flags & TEGRA_DC_FLAG_ENABLED)
+	if (dc->pdata->flags & TEGRA_DC_FLAG_ENABLED) {
+		_tegra_dc_set_default_videomode(dc);
 		dc->enabled = _tegra_dc_enable(dc);
+	}
 	mutex_unlock(&dc->lock);
 
 	/* interrupt handler must be registered before tegra_fb_register() */
@@ -2123,12 +2141,13 @@ static void tegra_dc_shutdown(struct nvhost_device *ndev)
 
                        if (pb->notify)
                                brightness = pb->notify(pb->dev, brightness);
-                       msleep(10);
+                       msleep(5);
                        pwm_config(pb->pwm, 0, pb->period);
                        pwm_disable(pb->pwm);
                }
 
-		tegra_dc_disable(dc);
+               if (dc->out && dc->out->disable)
+                       dc->out->disable();
        }
        printk("%s-, ndev->name=%s ####\n", __func__, ndev->name);
 }
@@ -2178,8 +2197,10 @@ static int tegra_dc_resume(struct nvhost_device *ndev)
 	mutex_lock(&dc->lock);
 	dc->suspended = false;
 
-	if (dc->enabled)
+	if (dc->enabled) {
+		_tegra_dc_set_default_videomode(dc);
 		_tegra_dc_enable(dc);
+	}
 
 	if (dc->out && dc->out->hotplug_init)
 		dc->out->hotplug_init();
