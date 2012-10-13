@@ -540,6 +540,52 @@ dev_wlc_intvar_get(
 	return (error);
 }
 
+#define DISABLE_AP_MODE_AT_IDLE 1
+
+#ifdef DISABLE_AP_MODE_AT_IDLE
+static void wl_iw_update_assoclist_block(struct work_struct *work);
+DECLARE_DELAYED_WORK(start_update_assoclist, wl_iw_update_assoclist_block);
+
+static void wl_iw_update_assoclist_block(struct work_struct *work)
+{
+	int res = 0;
+	int assoc_count = 0;
+	char mac_buf[128] = {0};
+	char extra[IW_CUSTOM_MAX + 1];
+	struct maclist *assoc_maclist = (struct maclist *) mac_buf;
+
+	memset(assoc_maclist, 0, sizeof(mac_buf));
+	memset(extra, 0, sizeof(extra));
+	assoc_maclist->count = 8;
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
+	rtnl_lock();
+#endif
+
+	res = dev_wlc_ioctl(priv_dev, WLC_GET_ASSOCLIST, assoc_maclist, 128);
+
+	if (res != 0) {
+		WL_SOFTAP(("%s: Error:%d Couldn't get ASSOC List\n", __FUNCTION__, res));
+		goto update_end;
+	}
+
+	if (assoc_maclist->count) {
+		assoc_count = assoc_maclist->count;
+		WL_SOFTAP((" STA ASSOC count = %d\n",assoc_maclist->count));
+	} else {
+		assoc_count = 0;
+		WL_SOFTAP((" STA ASSOC list is empty\n"));
+	}
+
+update_end:
+	sprintf(extra, "ASSOC_COUNT %d", assoc_count);
+	wl_iw_send_priv_event(priv_dev, extra);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27))
+	rtnl_unlock();
+#endif
+}
+#endif //DISABLE_AP_MODE_AT_IDLE
+
 #define AP_TKIP_COUNTERMEASURES 1
 
 #ifdef AP_TKIP_COUNTERMEASURES
@@ -8037,6 +8083,9 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 		WL_SOFTAP(("STA connect received %d\n", event_type));
 		if (ap_cfg_running) {
 			wl_iw_send_priv_event(priv_dev, "STA_JOIN");
+#ifdef DISABLE_AP_MODE_AT_IDLE
+			schedule_delayed_work(&start_update_assoclist, HZ);
+#endif
 			goto wl_iw_event_end;
 		}
 #endif
@@ -8076,6 +8125,9 @@ wl_iw_event(struct net_device *dev, wl_event_msg_t *e, void* data)
 		WL_SOFTAP(("STA disconnect received %d\n", event_type));
 		if (ap_cfg_running) {
 			wl_iw_send_priv_event(priv_dev, "STA_LEAVE");
+#ifdef DISABLE_AP_MODE_AT_IDLE
+			schedule_delayed_work(&start_update_assoclist, HZ);
+#endif
 			goto wl_iw_event_end;
 		}
 #endif
@@ -8664,6 +8716,10 @@ void wl_iw_detach(void)
 	wl_iw_release_ss_cache_ctrl();
 #endif
 	wl_iw_bt_release();
+
+#ifdef DISABLE_AP_MODE_AT_IDLE
+        cancel_delayed_work_sync(&start_update_assoclist);
+#endif
 
 #ifdef AP_TKIP_COUNTERMEASURES
 	cancel_delayed_work_sync(&start_mic);

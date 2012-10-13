@@ -314,6 +314,7 @@ enum {
 	TF201_PAD,
 	TF300TG,
 	TF700T,
+	TF300TL,
 };
 
 struct hw_eq_preset {
@@ -366,6 +367,10 @@ struct hw_eq_preset hweq_preset[] = {
 	{TF700T ,{0x0264, 0xFE43, 0xC0E5, 0x1F2C, 0x0C73,0xC19B,
 		0x1EB2, 0xFA19, 0xC5FC, 0x1C10, 0x095B, 0x1561,
 		0x0699,0xC18B,0x1E7F,0x1F3D},0x402A, 0x8003, 0x0005},
+	{TF300TL ,{0x1CD0,0x1D18,0xC21C,0x1E30,0xF900,0xC2C8,0x1EC4,
+                0x095B,0xCA22,0x1C10,0x1830,0xF76D,0x0FEC,0xC130,
+                0x1ED6,0x1F69},0x403F, 0x8004, 0x0005},
+
 };
 
 static int rt5631_reg_init(struct snd_soc_codec *codec)
@@ -760,6 +765,8 @@ static int spk_event(struct snd_soc_dapm_widget *w,
 						rt5631_update_eqmode(codec,TF300TG);
 				  }else if(project_id == TEGRA3_PROJECT_TF700T){
 						rt5631_update_eqmode(codec,TF700T);
+				  }else if(project_id == TEGRA3_PROJECT_TF300TL){
+						rt5631_update_eqmode(codec,TF300TL);
 				  }else{
 						rt5631_update_eqmode(codec,TF201_PAD);
 				  }//enable EQ after power on DAC power
@@ -878,7 +885,9 @@ static int spk_event(struct snd_soc_dapm_widget *w,
 		return 0;
 	}
 
-	if(project_id == TEGRA3_PROJECT_TF700T){
+	if(project_id == TEGRA3_PROJECT_TF700T ||
+		project_id == TEGRA3_PROJECT_TF300TG ||
+		project_id == TEGRA3_PROJECT_TF300TL){
 		rt5631_write_index(codec, 0x48, 0xF73C);
 		reg_val = rt5631_read_index(codec, 0x48);
 		printk("%s -codec index 0x48=0x%04X\n", __FUNCTION__, reg_val);

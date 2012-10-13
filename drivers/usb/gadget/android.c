@@ -33,6 +33,7 @@
 #include <linux/gpio.h>
 #include <../gpio-names.h>
 #include "gadget_chips.h"
+#include <../../../arch/arm/mach-tegra/include/mach/board-cardhu-misc.h>
 
 /*
  * Kbuild is not very cooperative with respect to linking separately
@@ -50,6 +51,7 @@
 #include "f_mass_storage.c"
 #include "u_serial.c"
 #include "f_acm.c"
+#include "f_serial.c"
 #include "f_adb.c"
 #include "f_mtp.c"
 #include "f_accessory.c"
@@ -396,6 +398,77 @@ static struct android_usb_function acm_function = {
 	.attributes	= acm_function_attributes,
 };
 
+/* Support serial ports */
+#define MAX_GSER_INSTANCES 4
+struct gser_function_config {
+	int instances;
+};
+static int gser_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
+{
+	f->config = kzalloc(sizeof(struct gser_function_config), GFP_KERNEL);
+	if (!f->config) {
+		pr_err("%s: mssing config\n", __func__);
+		return -ENOMEM;
+	}
+	return gserial_setup(cdev->gadget, MAX_GSER_INSTANCES);
+}
+
+static void gser_function_cleanup(struct android_usb_function *f)
+{
+	gserial_cleanup();
+	kfree(f->config);
+	f->config = NULL;
+}
+
+static int gser_function_bind_config(struct android_usb_function *f, struct usb_configuration *c)
+{
+	int i;
+	int ret = 0;
+	struct gser_function_config *config = f->config;
+
+	for (i = 0; i < config->instances; i++) {
+		ret = gser_bind_config(c, i);
+		if (ret) {
+			pr_err("Could not bind gser%u config\n", i);
+			break;
+		}
+	}
+
+	return ret;
+}
+
+static ssize_t gser_instances_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct gser_function_config *config = f->config;
+	return sprintf(buf, "%d\n", config->instances);
+}
+
+static ssize_t gser_instances_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct gser_function_config *config = f->config;
+	int value;
+
+	sscanf(buf, "%d", &value);
+	if (value > MAX_GSER_INSTANCES)
+		value = MAX_GSER_INSTANCES;
+	config->instances = value;
+	return size;
+}
+
+static DEVICE_ATTR(gser_instances, S_IRUGO | S_IWUSR, gser_instances_show, gser_instances_store);
+static struct device_attribute *gser_function_attributes[] = { &dev_attr_gser_instances, NULL };
+
+static struct android_usb_function gser_function = {
+	.name        = "gser",
+	.init        = gser_function_init,
+	.cleanup     = gser_function_cleanup,
+	.bind_config = gser_function_bind_config,
+	.attributes  = gser_function_attributes,
+};
 
 static int mtp_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
 {
@@ -830,6 +903,7 @@ static struct android_usb_function audio_source_function = {
 static struct android_usb_function *supported_functions[] = {
 	&adb_function,
 	&acm_function,
+	&gser_function,
 	&mtp_function,
 	&ptp_function,
 	&rndis_function,
@@ -851,6 +925,20 @@ static int android_init_functions(struct android_usb_function **functions,
 	int index = 0;
 
 	for (; (f = *functions++); index++) {
+		if (!strcmp(f->name, "acm")) {
+			if (tegra3_get_project_id() != TEGRA3_PROJECT_TF300TG) {
+				pr_err("pid != TF300TG, cancel acm ports\n");
+				continue;
+			}
+		}
+
+		if (!strcmp(f->name, "gser")) {
+			if (tegra3_get_project_id() != TEGRA3_PROJECT_TF300TL) {
+				pr_err("pid != TF300TL, cancel serial ports\n");
+				continue;
+			}
+		}
+
 		f->dev_name = kasprintf(GFP_KERNEL, "f_%s", f->name);
 		f->dev = device_create(android_class, dev->dev,
 				MKDEV(0, index), f, f->dev_name);

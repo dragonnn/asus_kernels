@@ -5205,6 +5205,27 @@ static bool wl_is_nonetwork(struct wl_priv *wl, const wl_event_msg_t *e)
 	return false;
 }
 
+#define DISABLE_AP_MODE_AT_IDLE 1
+#ifdef DISABLE_AP_MODE_AT_IDLE
+int wl_send_priv_event(struct net_device *dev, char *flag)
+{
+	union iwreq_data wrqu;
+	char extra[IW_CUSTOM_MAX + 1];
+	int cmd;
+
+	cmd = IWEVCUSTOM;
+	memset(&wrqu, 0, sizeof(wrqu));
+	if (strlen(flag) > sizeof(extra))
+		return -1;
+
+	strcpy(extra, flag);
+	wrqu.data.length = strlen(extra);
+	wireless_send_event(dev, cmd, &wrqu, extra);
+
+	return 0;
+}
+#endif //DISABLE_AP_MODE_AT_IDLE
+
 /* The mainline kernel >= 3.2.0 has support for indicating new/del station
  * to AP/P2P GO via events. If this change is backported to kernel for which
  * this driver is being built, then define WL_CFG80211_STA_EVENT. You
@@ -5218,6 +5239,12 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 	u32 event = ntoh32(e->event_type);
 	u32 reason = ntoh32(e->reason);
 	u32 len = ntoh32(e->datalen);
+#ifdef DISABLE_AP_MODE_AT_IDLE
+	char mac_buf[128] = {0};
+	struct maclist *assoc_maclist = (struct maclist *) mac_buf;
+	char extra[IW_CUSTOM_MAX + 1];
+	int assoc_count = 0;
+#endif //DISABLE_AP_MODE_AT_IDLE
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)) && !defined(WL_CFG80211_STA_EVENT)
 	bool isfree = false;
@@ -5237,7 +5264,15 @@ wl_notify_connect_status_ap(struct wl_priv *wl, struct net_device *ndev,
 	struct station_info sinfo;
 #endif /* (LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)) && !WL_CFG80211_STA_EVENT */
 
-
+#ifdef DISABLE_AP_MODE_AT_IDLE
+	memset(assoc_maclist, 0, sizeof(mac_buf));
+	assoc_maclist->count = 8;
+	if ((err = wldev_ioctl(ndev, WLC_GET_ASSOCLIST, mac_buf, sizeof(mac_buf), false))) {
+		WL_ERR(("%s: Error: %d Get ASSOCLIST fail %d\n", __FUNCTION__, err, assoc_maclist->count));
+	} else {
+		assoc_count = assoc_maclist->count;
+	}
+#endif //DISABLE_AP_MODE_AT_IDLE
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0)) && !defined(WL_CFG80211_STA_EVENT)
 	body = kzalloc(len, GFP_KERNEL);
 	WL_DBG(("Enter \n"));
@@ -5337,6 +5372,11 @@ exit:
 		cfg80211_del_sta(ndev, e->addr.octet, GFP_ATOMIC);
 	}
 #endif /* LINUX_VERSION_CODE < KERNEL_VERSION(3, 2, 0) && !WL_CFG80211_STA_EVENT */
+#ifdef DISABLE_AP_MODE_AT_IDLE
+	memset(extra, 0, sizeof(extra));
+	sprintf(extra, "ASSOC_COUNT %d", assoc_count);
+	wl_send_priv_event(ndev, extra);
+#endif //DISABLE_AP_MODE_AT_IDLE
 	return err;
 }
 

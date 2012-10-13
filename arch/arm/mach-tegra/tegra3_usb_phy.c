@@ -32,6 +32,7 @@
 #include <mach/board-cardhu-misc.h>
 #include "tegra_usb_phy.h"
 #include "gpio-names.h"
+#include "baseband-xmm-power.h"
 #include "fuse.h"
 
 #define USB_USBCMD		0x130
@@ -461,7 +462,7 @@
 /* These values (in milli second) are taken from the battery charging spec */
 #define TDP_SRC_ON_MS	 100
 #define TDPSRC_CON_MS	 40
-
+extern int baseband_xmm_enable_hsic_power(int enable);
 #ifdef DEBUG
 #define DBG(stuff...)	pr_info("tegra3_usb_phy: " stuff)
 #else
@@ -1916,6 +1917,31 @@ static void uhsic_setup_pmc_wake_detect(struct tegra_usb_phy *phy)
 	DBG("%s:PMC enabled for HSIC remote wakeup\n", __func__);
 }
 
+static void uhsic_powerdown_pmc_wake_detect(struct tegra_usb_phy *phy)
+{
+	unsigned long val;
+	void __iomem *pmc_base = IO_ADDRESS(TEGRA_PMC_BASE);
+
+	DBG("%s:%d\n", __func__, __LINE__);
+	/* turn on pad detectors for HSIC*/
+	val = readl(pmc_base + PMC_USB_AO);
+	val |= (HSIC_RESERVED_P0 | STROBE_VAL_PD_P0 | DATA_VAL_PD_P0);
+	writel(val, pmc_base + PMC_USB_AO);
+
+	/* enable pull downs on HSIC PMC */
+	val = UHSIC_STROBE_RPD_A | UHSIC_DATA_RPD_A | UHSIC_STROBE_RPD_B |
+		UHSIC_DATA_RPD_B | UHSIC_STROBE_RPD_C | UHSIC_DATA_RPD_C |
+		UHSIC_STROBE_RPD_D | UHSIC_DATA_RPD_D;
+	writel(val, pmc_base + PMC_SLEEPWALK_UHSIC);
+
+	/* Turn over pad configuration to PMC */
+	val = readl(pmc_base + PMC_SLEEP_CFG);
+	val &= ~UHSIC_WAKE_VAL_P0(~0);
+	val |= UHSIC_WAKE_VAL_P0(WAKE_VAL_NONE) | UHSIC_MASTER_ENABLE_P0;
+	writel(val, pmc_base + PMC_SLEEP_CFG);
+}
+
+
 static void uhsic_phy_disable_pmc_bus_ctrl(struct tegra_usb_phy *phy)
 {
 	unsigned long val;
@@ -2101,6 +2127,20 @@ static int uhsic_phy_open(struct tegra_usb_phy *phy)
 	return 0;
 }
 
+static void uhsic_phy_close(struct tegra_usb_phy *phy)
+{
+	unsigned long val;
+	void __iomem *base = phy->regs;
+	DBG("%s(%d) inst:[%d]\n", __func__, __LINE__, phy->inst);
+
+	val = readl(base + USB_SUSP_CTRL);
+	val &= ~UHSIC_PHY_ENABLE;
+	writel(val, base + USB_SUSP_CTRL);
+
+	uhsic_powerdown_pmc_wake_detect(phy);
+}
+
+
 static int uhsic_phy_irq(struct tegra_usb_phy *phy)
 {
 	usb_phy_fence_read(phy);
@@ -2117,6 +2157,16 @@ static int uhsic_phy_power_on(struct tegra_usb_phy *phy)
 	struct tegra_hsic_config *config = &phy->pdata->u_cfg.hsic;
 
 	DBG("%s(%d) inst:[%d]\n", __func__, __LINE__, phy->inst);
+
+
+	if (config->enable_gpio) {
+		tegra_gpio_enable(config->enable_gpio);
+		gpio_request(config->enable_gpio,"uhsic_enable");
+		baseband_xmm_enable_hsic_power(1);
+		gpio_direction_output(config->enable_gpio,1);
+		gpio_set_value_cansleep(config->enable_gpio, 1);
+		mdelay(1);
+	}
 
 	if (phy->phy_clk_on) {
 		DBG("%s(%d) inst:[%d] phy clk is already On\n",
@@ -2216,6 +2266,15 @@ static int uhsic_phy_power_on(struct tegra_usb_phy *phy)
 	phy->phy_clk_on = true;
 	phy->hw_accessible = true;
 
+	if (phy->pmc_sleepwalk) {
+		DBG("%s(%d) inst:[%d] restore phy\n", __func__, __LINE__,
+					phy->inst);
+		uhsic_phy_restore_start(phy);
+		usb_phy_bringup_host_controller(phy);
+		uhsic_phy_restore_end(phy);
+		phy->pmc_sleepwalk = false;
+	}
+
 	return 0;
 }
 
@@ -2223,6 +2282,7 @@ static int uhsic_phy_power_off(struct tegra_usb_phy *phy)
 {
 	unsigned long val;
 	void __iomem *base = phy->regs;
+	struct tegra_hsic_config *config = &phy->pdata->u_cfg.hsic;
 
 	DBG("%s(%d) inst:[%d]\n", __func__, __LINE__, phy->inst);
 	if (!phy->phy_clk_on) {
@@ -2237,7 +2297,10 @@ static int uhsic_phy_power_off(struct tegra_usb_phy *phy)
 	/* Disable interrupts */
 	writel(0, base + USB_USBINTR);
 
-	uhsic_setup_pmc_wake_detect(phy);
+	if (phy->pmc_sleepwalk == false) {
+		uhsic_setup_pmc_wake_detect(phy);
+		phy->pmc_sleepwalk = true;
+	}
 
 	val = readl(base + HOSTPC1_DEVLC);
 	val |= HOSTPC1_DEVLC_PHCD;
@@ -2245,6 +2308,11 @@ static int uhsic_phy_power_off(struct tegra_usb_phy *phy)
 
 	phy->phy_clk_on = false;
 	phy->hw_accessible = false;
+
+	gpio_direction_output(config->enable_gpio,0);
+	/* keep hsic reset de-asserted for 1 ms */
+	udelay(1000);
+	baseband_xmm_enable_hsic_power(0);
 
 	return 0;
 }
@@ -2385,10 +2453,6 @@ static int uhsic_phy_bus_reset(struct tegra_usb_phy *phy)
 int uhsic_phy_resume(struct tegra_usb_phy *phy)
 {
 	DBG("%s(%d) inst:[%d]\n", __func__, __LINE__, phy->inst);
-
-	uhsic_phy_restore_start(phy);
-	usb_phy_bringup_host_controller(phy);
-	uhsic_phy_restore_end(phy);
 
 	return 0;
 }
@@ -2836,6 +2900,7 @@ static struct tegra_usb_phy_ops utmi_phy_ops = {
 
 static struct tegra_usb_phy_ops uhsic_phy_ops = {
 	.open		= uhsic_phy_open,
+	.close		= uhsic_phy_close,
 	.irq		= uhsic_phy_irq,
 	.power_on	= uhsic_phy_power_on,
 	.power_off	= uhsic_phy_power_off,
