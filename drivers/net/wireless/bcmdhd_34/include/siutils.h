@@ -2,27 +2,9 @@
  * Misc utility routines for accessing the SOC Interconnects
  * of Broadcom HNBU chips.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: siutils.h 336988 2012-06-05 20:35:30Z $
+ * $Id: siutils.h 347614 2012-07-27 10:24:51Z $
  */
 
 #ifndef	_siutils_h_
@@ -282,7 +264,6 @@ extern char *si_coded_devpathvar(si_t *sih, char *varname, int var_len, const ch
 
 extern uint8 si_pcieclkreq(si_t *sih, uint32 mask, uint32 val);
 extern uint32 si_pcielcreg(si_t *sih, uint32 mask, uint32 val);
-extern void si_pcie_set_error_injection(si_t *sih, uint32 mode);
 extern void si_war42780_clkreq(si_t *sih, bool clkreq);
 extern void si_pci_down(si_t *sih);
 extern void si_pci_up(si_t *sih);

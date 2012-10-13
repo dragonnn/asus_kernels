@@ -3,25 +3,7 @@
  * This header file housing the define and function prototype use by
  * both the wl driver, tools & Apps.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * $Id: bcmwifi_channels.h 309193 2012-01-19 00:03:57Z $
  */
@@ -69,12 +51,6 @@ typedef uint16 chanspec_t;
 
 #define WL_CHANSPEC_BAND_MASK		0xf000
 #define WL_CHANSPEC_BAND_SHIFT		12
-#ifdef WL_CHANSPEC_BAND_5G
-#undef WL_CHANSPEC_BAND_5G
-#endif
-#ifdef WL_CHANSPEC_BAND_2G
-#undef WL_CHANSPEC_BAND_2G
-#endif
 #define WL_CHANSPEC_BAND_5G		0x1000
 #define WL_CHANSPEC_BAND_2G		0x2000
 #define INVCHANSPEC			255

@@ -1,27 +1,9 @@
 /*
  * Broadcom device-specific manifest constants.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: bcmdevs.h 342472 2012-07-03 00:24:14Z $
+ * $Id: bcmdevs.h 329854 2012-04-27 01:42:28Z $
  */
 
 #ifndef	_BCMDEVS_H
@@ -63,9 +45,6 @@
 #define BCM_DNGL_BL_PID_43239   0xbd1b
 #define BCM_DNGL_BL_PID_4324	0xbd1c
 #define BCM_DNGL_BL_PID_4360	0xbd1d
-#define BCM_DNGL_BL_PID_43143	0xbd1e
-#define BCM_DNGL_BL_PID_43242	0xbd1f
-#define BCM_DNGL_BL_PID_43342	0xbd21
 
 #define BCM_DNGL_BDC_PID	0x0bdc
 #define BCM_DNGL_JTAG_PID	0x4a44
@@ -163,18 +142,7 @@
 #define BCM943228HMB_SSID_VEN1	0x0607
 #define BCM94313HMGBL_SSID_VEN1	0x0608
 #define BCM94313HMG_SSID_VEN1	0x0609
-#define BCM943142HM_SSID_VEN1	0x0611
 
-#define BCM43143_D11N2G_ID	0x4366		
-
-#define BCM43242_D11N_ID	0x4367		
-#define BCM43242_D11N2G_ID	0x4368		
-#define BCM43242_D11N5G_ID	0x4369		
-
-
-#define BCM43342_D11N_ID	0x4383		
-#define BCM43342_D11N2G_ID	0x4384		
-#define BCM43342_D11N5G_ID	0x4385		
 
 #define BCM4335_D11AC_ID	0x43ae
 #define BCM4335_D11AC2G_ID	0x43af
@@ -274,12 +242,9 @@
 #define BCM6362_CHIP_ID		0x6362		
 #define BCM4314_CHIP_ID		0x4314		
 #define BCM43142_CHIP_ID	43142		
-#define BCM43143_CHIP_ID	43143		
 #define	BCM4324_CHIP_ID		0x4324		
 #define	BCM43242_CHIP_ID	43242		
-#define	BCM43243_CHIP_ID	43243		
 #define BCM4334_CHIP_ID		0x4334		
-#define BCM4335_CHIP_ID		0x4335		
 #define BCM4360_CHIP_ID		0x4360          
 #define BCM4352_CHIP_ID		0x4352          
 #define BCM43526_CHIP_ID	0xAA06
@@ -362,7 +327,7 @@
 #define	BFL_PACTRL		0x00000002  
 #define BFL_AIRLINEMODE	0x00000004  
 #define	BFL_ADCDIV		0x00000008  
-#define BFL_DIS_256QAM		0x00000008
+#define	BFL_RFPLL	        0x00000008  
 #define	BFL_ENETROBO		0x00000010  
 #define	BFL_NOPLLDOWN		0x00000020  
 #define	BFL_CCKHIPWR		0x00000040  
@@ -390,7 +355,6 @@
 #define BFL_UCPWRCTL_MININDX	0x08000000  
 #define BFL_EXTLNA_5GHz		0x10000000  
 #define BFL_TRSW_1by2		0x20000000  
-#define BFL_GAINBOOSTA01        0x20000000  
 #define BFL_LO_TRSW_R_5GHz	0x40000000  
 #define BFL_ELNA_GAINDEF	0x80000000  
 #define BFL_EXTLNA_TX	0x20000000	
@@ -432,20 +396,6 @@
 #define BFL2_4313_RADIOREG	0x10000000
 									   
 #define BFL2_SDR_EN		0x20000000	
-
-
-#define BFL_SROM11_BTCOEX  0x00000001  
-#define BFL_SROM11_WLAN_BT_SH_XTL  0x00000002  
-#define BFL_SROM11_EXTLNA	0x00001000  
-#define BFL_SROM11_EXTLNA_5GHz	0x10000000  
-#define BFL_SROM11_GAINBOOSTA01	0x20000000  
-#define BFL2_SROM11_APLL_WAR	0x00000002  
-#define BFL2_SROM11_ANAPACTRL_2G  0x00100000  
-#define BFL2_SROM11_ANAPACTRL_5G  0x00200000  
-
-
-#define BFL3_FEMCTRL_SUB	0x00000007  
-
 
 
 #define	BOARD_GPIO_BTC3W_IN	0x850	
@@ -502,10 +452,6 @@
 #define RDL_RAM_BASE_4328 0x80000000
 #define RDL_RAM_SIZE_4322 0x60000
 #define RDL_RAM_BASE_4322 0x60000000
-#define RDL_RAM_SIZE_4360  0xE0000
-#define RDL_RAM_BASE_4360  0x60000000
-#define RDL_RAM_SIZE_43242  0x90000
-#define RDL_RAM_BASE_43242  0x60000000
 
 
 #define MUXENAB_UART		0x00000001

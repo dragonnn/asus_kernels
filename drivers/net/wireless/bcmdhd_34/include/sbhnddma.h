@@ -2,27 +2,9 @@
  * Generic Broadcom Home Networking Division (HND) DMA engine HW interface
  * This supports the following chips: BCM42xx, 44xx, 47xx .
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: sbhnddma.h 337303 2012-06-06 22:22:33Z $
+ * $Id: sbhnddma.h 309193 2012-01-19 00:03:57Z $
  */
 
 #ifndef	_sbhnddma_h_
@@ -230,8 +212,6 @@ typedef volatile struct {
 	uint32	addrhigh;	
 } dma64dd_t;
 
-#define	D64MAXDD_16	((1 << 16) / sizeof (dma64dd_t))
-
 
 #define D64RINGALIGN_BITS	13
 #define	D64MAXRINGSZ		(1 << D64RINGALIGN_BITS)
@@ -260,7 +240,7 @@ typedef volatile struct {
 #define	D64_XP_LD_MASK		0x00001fff	
 
 
-#define	D64_XS0_CD_MASK		(di->d64_xs0_cd_mask)	
+#define	D64_XS0_CD_MASK		0x00001fff	
 #define	D64_XS0_XS_MASK		0xf0000000     	
 #define	D64_XS0_XS_SHIFT		28
 #define	D64_XS0_XS_DISABLED	0x00000000	
@@ -269,7 +249,7 @@ typedef volatile struct {
 #define	D64_XS0_XS_STOPPED	0x30000000	
 #define	D64_XS0_XS_SUSP		0x40000000	
 
-#define	D64_XS1_AD_MASK		(di->d64_xs1_ad_mask)	
+#define	D64_XS1_AD_MASK		0x00001fff	
 #define	D64_XS1_XE_MASK		0xf0000000     	
 #define	D64_XS1_XE_SHIFT		28
 #define	D64_XS1_XE_NOERR	0x00000000	
@@ -308,7 +288,7 @@ typedef volatile struct {
 #define	D64_RP_LD_MASK		0x00001fff	
 
 
-#define	D64_RS0_CD_MASK		(di->d64_rs0_cd_mask)	
+#define	D64_RS0_CD_MASK		0x00001fff	
 #define	D64_RS0_RS_MASK		0xf0000000     	
 #define	D64_RS0_RS_SHIFT		28
 #define	D64_RS0_RS_DISABLED	0x00000000	

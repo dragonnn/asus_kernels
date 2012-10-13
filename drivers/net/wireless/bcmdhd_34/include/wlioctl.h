@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wlioctl.h 343560 2012-07-09 06:40:46Z $
+ * $Id: wlioctl.h 334796 2012-05-23 22:59:44Z $
  */
 
 #ifndef _wlioctl_h_
@@ -209,8 +209,8 @@ typedef struct wl_bss_info {
 	uint32		nbss_cap;		/* 802.11N+AC BSS Capabilities */
 	uint8		ctl_ch;			/* 802.11N BSS control channel number */
 	uint8		padding1[3];		/* explicit struct alignment padding */
-	uint16		vht_rxmcsmap;		/* VHT rx mcs map (802.11ac VHT_CAP_MCS_MAP_*) */
-	uint16		vht_txmcsmap;		/* VHT tx mcs map (802.11ac VHT_CAP_MCS_MAP_*) */
+	uint16		vht_rxmcsmap;		/* VHT rx mcs map */
+	uint16		vht_txmcsmap;		/* VHT tx mcs map */
 	uint8		flags;			/* flags */
 	uint8		vht_cap;		/* BSS is vht capable */
 	uint8		reserved[2];		/* Reserved for expansion of BSS properties */
@@ -503,7 +503,6 @@ typedef struct wl_rateset_args {
 	uint32	count;			/* # rates in this set */
 	uint8	rates[WL_MAXRATES_IN_SET];	/* rates in 500kbps units w/hi bit set if basic */
 	uint8   mcs[MCSSET_LEN];        /* supported mcs index bit map */
-	uint16 vht_mcs[VHT_CAP_MCS_MAP_NSS_MAX]; /* supported mcs index bit map per nss */
 } wl_rateset_args_t;
 
 /* uint32 list */
@@ -1716,7 +1715,12 @@ typedef struct {
 /* WLC_GET_AUTH, WLC_SET_AUTH values */
 #define WL_AUTH_OPEN_SYSTEM		0	/* d11 open authentication */
 #define WL_AUTH_SHARED_KEY		1	/* d11 shared authentication */
-#define WL_AUTH_OPEN_SHARED     	2   /* try open, then shared if open failed w/rc 13 */
+#ifdef BCM4330_CHIP
+#define WL_AUTH_OPEN_SHARED		2	/* try open, then shared if open failed w/rc 13 */
+#else
+/* BCM4334(Phoenex branch) value changed to 3 */
+#define WL_AUTH_OPEN_SHARED		3	/* try open, then shared if open failed w/rc 13 */
+#endif
 #endif /* LINUX_POSTMOGRIFY_REMOVAL */
 
 /* Bit masks for radio disabled status - returned by WL_GET_RADIO */
@@ -1737,16 +1741,6 @@ typedef struct {
 #define WL_PHY_PAVARS_LEN	32	/* Phy type, Band range, chain, a1[0], b0[0], b1[0] ... */
 
 #define WL_PHY_PAVAR_VER	1	/* pavars version */
-#define WL_PHY_PAVARS2_NUM	3	/* a1, b0, b1 */
-typedef struct wl_pavars2 {
-	uint16 ver;		/* version of this struct */
-	uint16 len;		/* len of this structure */
-	uint16 inuse;		/* driver return 1 for a1,b0,b1 in current band range */
-	uint16 phy_type;	/* phy type */
-	uint16 bandrange;
-	uint16 chain;
-	uint16 inpa[WL_PHY_PAVARS2_NUM];	/* phy pavars for one band range */
-} wl_pavars2_t;
 
 typedef struct wl_po {
 	uint16	phy_type;	/* Phy type */
@@ -1797,12 +1791,6 @@ typedef struct wl_po {
 #define WL_CHAN_FREQ_RANGE_5GL     1
 #define WL_CHAN_FREQ_RANGE_5GM     2
 #define WL_CHAN_FREQ_RANGE_5GH     3
-
-#define WL_CHAN_FREQ_RANGE_5GLL_5BAND    4
-#define WL_CHAN_FREQ_RANGE_5GLH_5BAND    5
-#define WL_CHAN_FREQ_RANGE_5GML_5BAND    6
-#define WL_CHAN_FREQ_RANGE_5GMH_5BAND    7
-#define WL_CHAN_FREQ_RANGE_5GH_5BAND     8
 
 #define WL_CHAN_FREQ_RANGE_5G_BAND0     1
 #define WL_CHAN_FREQ_RANGE_5G_BAND1     2
@@ -1998,8 +1986,6 @@ typedef struct wl_samplecollect_args {
 	uint8 module_sel1;
 	uint8 module_sel2;
 	uint16 nsamps;
-	int bitStart;
-	uint32 gpioCapMask;
 } wl_samplecollect_args_t;
 
 #define	WL_SAMPLEDATA_HEADER_TYPE	1
@@ -2541,6 +2527,13 @@ typedef struct txppr {
 #define WL_TX_POWER_MCS20_SISO_FIRST_SSN	WL_TX_POWER_MCS20_SISO_FIRST
 #define WL_TX_POWER_MCS40_SISO_FIRST_SSN	WL_TX_POWER_MCS40_SISO_FIRST
 
+/* tx_power_t.flags bits */
+#define WL_TX_POWER_F_ENABLED	1
+#define WL_TX_POWER_F_HW	2
+#define WL_TX_POWER_F_MIMO	4
+#define WL_TX_POWER_F_SISO	8
+#define WL_TX_POWER_F_HT	0x10
+
 typedef struct {
 	uint16 ver;				/* version of this struct */
 	uint16 len;				/* length in bytes of this structure */
@@ -2582,7 +2575,9 @@ typedef struct {
 	int8  antgain[2];			/* Ant gain for each band - from SROM */
 	uint8 rf_cores;				/* count of RF Cores being reported */
 	uint8 est_Pout[4];			/* Latest tx power out estimate per RF chain */
-	uint8 est_Pout_act[4]; /* Latest tx power out estimate per RF chain w/o adjustment */
+	uint8 est_Pout_act[4];		/* Latest tx power out estimate per RF chain
+	* without adjustment
+	*/
 	uint8 est_Pout_cck;			/* Latest CCK tx power out estimate */
 	uint8 tx_power_max[4];		/* Maximum target power among all rates */
 	uint tx_power_max_rate_ind[4];		/* Index of the rate with the max target power */
@@ -2596,9 +2591,11 @@ typedef struct {
 	int8 channel_bandwidth;		/* 20, 40 or 80 MHz bandwidth? */
 	uint8 version;				/* Version of the data format wlu <--> driver */
 	uint8 display_core;			/* Displayed curpower core */
-	int8 target_offsets[4];		/* Target power offsets for current rate per core */
-	uint32 last_tx_ratespec;	/* Ratespec for last transmition */
+#ifdef PPR_API
+} tx_power_new_t;
+#else
 } tx_power_t;
+#endif
 
 typedef struct tx_inst_power {
 	uint8 txpwr_est_Pout[2];			/* Latest estimate for 2.4 and 5 Ghz */
@@ -2741,8 +2738,7 @@ typedef struct wl_txchain_pwr_offsets {
 #define WL_PSTA_VAL		0x00008000
 #define WL_TBTT_VAL		0x00010000
 #define WL_NIC_VAL		0x00020000
-#define WL_PWRSEL_VAL	        0x00040000
-#define WL_TRF_MGMT_VAL		0x00080000
+#define WL_PWRSEL_VAL	0x00040000
 /* use top-bit for WL_TIME_STAMP_VAL because this is a modifier
  * rather than a message-type of its own
  */
@@ -2775,9 +2771,7 @@ typedef struct wl_txchain_pwr_offsets {
 #define WL_LED_ASSOC_WITH_SEC 	20		/* when connected with security */
 						/* keep on for 300 sec */
 #define WL_LED_START_OFF 	21		/* off upon boot, could be turned on later */
-#define WL_LED_W6		22		/* off upon boot, could be turned on later */
-#define WL_LED_WI7		23		/* off upon boot, could be turned on later */
-#define	WL_LED_NUMBEHAVIOR	24
+#define	WL_LED_NUMBEHAVIOR	22
 
 /* led behavior numeric value format */
 #define	WL_LED_BEH_MASK		0x7f		/* behavior mask */
@@ -3558,12 +3552,12 @@ typedef struct tdls_iovar {
 /* modes */
 #define TDLS_WFD_IE_TX 0
 #define TDLS_WFD_IE_RX 1
-#define TDLS_WFD_IE_SIZE 512
+#define TDLS_WFD_IE_SIZE 255
 /* structure for tdls wfd ie */
 typedef struct tdls_wfd_ie_iovar {
 	struct ether_addr ea;		/* Station address */
 	uint8 mode;
-	uint16 length;
+	uint8 length;
 	uint8 data[TDLS_WFD_IE_SIZE];
 } tdls_wfd_ie_iovar_t;
 #endif /* WLTDLS */
@@ -3990,8 +3984,6 @@ typedef struct wl_seq_cmd_ioctl {
 
 #define WL_PKTENG_SYNCHRONOUS			0x100	/* synchronous flag */
 
-#define WL_PKTENG_MAXPKTSZ				16384	/* max pktsz limit for pkteng */
-
 typedef struct wl_pkteng {
 	uint32 flags;
 	uint32 delay;			/* Inter-packet delay */
@@ -4175,37 +4167,6 @@ typedef struct {
 	uint32 queue_capacity; /* the maximum capacity of the queue */
 } pktq_log_counters_v01_t;
 
-typedef struct {
-	uint32 requested;      /* packets requested to be stored */
-	uint32 stored;         /* packets stored */
-	uint32 saved;          /* packets saved,
-	                          because a lowest priority queue has given away one packet
-	                       */
-	uint32 selfsaved;      /* packets saved,
-	                          because an older packet from the same queue has been dropped
-	                       */
-	uint32 full_dropped;   /* packets dropped,
-	                          because pktq is full with higher precedence packets
-	                       */
-	uint32 dropped;        /* packets dropped because pktq per that precedence is full */
-	uint32 sacrificed;     /* packets dropped,
-	                          in order to save one from a queue of a highest priority
-	                       */
-	uint32 busy;           /* packets droped because of hardware/transmission error */
-	uint32 retry;          /* packets re-sent because they were not received */
-	uint32 ps_retry;       /* packets retried again prior to moving power save mode */
-	uint32 retry_drop;     /* packets finally dropped after retry limit */
-	uint32 max_avail;      /* the high-water mark of the queue capacity for packets -
-	                          goes to zero as queue fills
-	                       */
-	uint32 max_used;       /* the high-water mark of the queue utilisation for packets -
-	                          increases with use ('inverse' of max_avail)
-	                       */
-	uint32 queue_capacity; /* the maximum capacity of the queue */
-	uint32 rtsfail;        /* count of rts attempts that failed to receive cts */
-	uint32 acked;          /* count of packets sent (acked) successfully */
-} pktq_log_counters_v02_t;
-
 #define sacrified sacrificed
 
 typedef struct {
@@ -4214,21 +4175,12 @@ typedef struct {
 	char                 headings[1];
 } pktq_log_format_v01_t;
 
-typedef struct {
-	uint8                num_prec[WL_IOV_MAC_PARAM_LEN];
-	pktq_log_counters_v02_t  counters[WL_IOV_MAC_PARAM_LEN][WL_IOV_PKTQ_LOG_PRECS];
-	uint32               throughput[WL_IOV_MAC_PARAM_LEN][WL_IOV_PKTQ_LOG_PRECS];
-	uint32               time_delta;
-	char                 headings[1];
-} pktq_log_format_v02_t;
-
 
 typedef struct {
 	uint32               version;
 	wl_iov_mac_params_t  params;
 	union {
 		pktq_log_format_v01_t v01;
-		pktq_log_format_v02_t v02;
 	} pktq_log;
 } wl_iov_pktq_log_t;
 
@@ -5026,23 +4978,15 @@ typedef struct {
 #define TRF_MGMT_MAX_PRIORITIES                 3
 
 #define TRF_MGMT_FLAG_ADD_DSCP                  0x0001  /* Add DSCP to IP TOS field */
-#define TRF_MGMT_FLAG_DISABLE_SHAPING           0x0002  /* Don't shape traffic */
-#define TRF_MGMT_FLAG_MANAGE_LOCAL_TRAFFIC      0x0008  /* Manage traffic over our local subnet */
-#define TRF_MGMT_FLAG_FILTER_ON_MACADDR         0x0010  /* filter on MAC address */
-#define TRF_MGMT_FLAG_NO_RX                     0x0020  /* do not apply fiters to rx packets */
-
-#define TRF_FILTER_MAC_ADDR              0x0001 /* L2 filter use dst mac address for filtering */
-#define TRF_FILTER_IP_ADDR               0x0002 /* L3 filter use ip ddress for filtering */
-#define TRF_FILTER_L4                    0x0004 /* L4 filter use tcp/udp for filtering */
-#define TRF_FILTER_FAVORED               0x0010 /* Tag the packet FAVORED */
+#define TRF_MGMT_FLAG_DISABLE_SHAPING           0x0002  /* Only support traffic clasification */
+#define TRF_MGMT_FLAG_DISABLE_PRIORITY_TAGGING  0x0004  /* Don't override packet's priority */
 
 /* Traffic management priority classes */
 typedef enum trf_mgmt_priority_class {
-	trf_mgmt_priority_low           = 0,        /* Maps to 802.1p BK */
-	trf_mgmt_priority_medium        = 1,        /* Maps to 802.1p BE */
-	trf_mgmt_priority_high          = 2,        /* Maps to 802.1p VI */
-	trf_mgmt_priority_nochange	= 3,	    /* do not update the priority */
-	trf_mgmt_priority_invalid       = (trf_mgmt_priority_nochange + 1)
+	trf_mgmt_priority_low           = 0,            /* Maps to 802.1p BO */
+	trf_mgmt_priority_medium        = 1,            /* Maps to 802.1p BE */
+	trf_mgmt_priority_high          = 2,            /* Maps to 802.1p VI */
+	trf_mgmt_priority_invalid       = (trf_mgmt_priority_high + 1)
 } trf_mgmt_priority_class_t;
 
 /* Traffic management configuration parameters */

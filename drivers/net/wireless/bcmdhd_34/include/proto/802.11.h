@@ -1,27 +1,9 @@
 /*
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * Fundamental types and constants relating to 802.11
  *
- * $Id: 802.11.h 342076 2012-06-29 21:08:40Z $
+ * $Id: 802.11.h 346820 2012-07-24 13:53:12Z $
  */
 
 #ifndef _802_11_H_
@@ -1693,9 +1675,6 @@ typedef struct d11cnt {
 
 
 
-#define BRCM_SYSCAP_WET_TUNNEL	0x0100	
-
-
 #define BRCM_OUI		"\x00\x10\x18"	
 
 
@@ -1737,6 +1716,7 @@ typedef struct vndr_ie vndr_ie_t;
 
 #define VNDR_IE_HDR_LEN		2	
 #define VNDR_IE_MIN_LEN		3	
+#define VNDR_IE_FIXED_LEN	(VNDR_IE_HDR_LEN + VNDR_IE_MIN_LEN)
 #define VNDR_IE_MAX_LEN		256	
 
 
@@ -1954,8 +1934,6 @@ typedef struct dot11_obss_ie dot11_obss_ie_t;
 
 
 
-
-
 BWL_PRE_PACKED_STRUCT struct vht_cap_ie {
 	uint32  vht_cap_info;
 	
@@ -1966,22 +1944,23 @@ BWL_PRE_PACKED_STRUCT struct vht_cap_ie {
 } BWL_POST_PACKED_STRUCT;
 typedef struct vht_cap_ie vht_cap_ie_t;
 
-
 #define VHT_CAP_IE_LEN 12
 
-
-#define VHT_CAP_INFO_MAX_MPDU_LEN_MASK          0x00000003
+#define VHT_CAP_INFO_MAX_MPDU_LEN_MASK			0x00000003
 #define VHT_CAP_INFO_SUPP_CHAN_WIDTH_MASK       0x0000000c
 #define VHT_CAP_INFO_LDPC                       0x00000010
 #define VHT_CAP_INFO_SGI_80MHZ                  0x00000020
+
 #define VHT_CAP_INFO_SGI_160MHZ                 0x00000040
 #define VHT_CAP_INFO_TX_STBC                    0x00000080
+
 #define VHT_CAP_INFO_RX_STBC_MASK               0x00000700
 #define VHT_CAP_INFO_RX_STBC_SHIFT              8
 #define VHT_CAP_INFO_SU_BEAMFMR                 0x00000800
 #define VHT_CAP_INFO_SU_BEAMFMEE                0x00001000
 #define VHT_CAP_INFO_NUM_BMFMR_ANT_MASK         0x0000e000
 #define VHT_CAP_INFO_NUM_BMFMR_ANT_SHIFT        13
+
 #define VHT_CAP_INFO_NUM_SOUNDING_DIM_MASK      0x00070000
 #define VHT_CAP_INFO_NUM_SOUNDING_DIM_SHIFT     16
 #define VHT_CAP_INFO_MU_BEAMFMR                 0x00080000
@@ -1990,52 +1969,37 @@ typedef struct vht_cap_ie vht_cap_ie_t;
 #define VHT_CAP_INFO_HTCVHT                     0x00400000
 #define VHT_CAP_INFO_AMPDU_MAXLEN_EXP_MASK      0x03800000
 #define VHT_CAP_INFO_AMPDU_MAXLEN_EXP_SHIFT     23
+
 #define VHT_CAP_INFO_LINK_ADAPT_CAP_MASK        0x0c000000
 #define VHT_CAP_INFO_LINK_ADAPT_CAP_SHIFT       26
 
 
-#define VHT_CAP_SUPP_MCS_RX_HIGHEST_RATE_MASK   0x1fff
-#define VHT_CAP_SUPP_MCS_RX_HIGHEST_RATE_SHIFT  0
+#define VHT_CAP_SUPP_MCS_RX_HIGHEST_RATE_MASK	0x1fff
+#define VHT_CAP_SUPP_MCS_RX_HIGHEST_RATE_SHIFT	0
 
-#define VHT_CAP_SUPP_MCS_TX_HIGHEST_RATE_MASK   0x1fff
-#define VHT_CAP_SUPP_MCS_TX_HIGHEST_RATE_SHIFT  0
+#define VHT_CAP_SUPP_MCS_TX_HIGHEST_RATE_MASK	0x1fff
+#define VHT_CAP_SUPP_MCS_TX_HIGHEST_RATE_SHIFT	0
 
-#define VHT_CAP_MCS_MAP_0_7                     0
-#define VHT_CAP_MCS_MAP_0_8                     1
-#define VHT_CAP_MCS_MAP_0_9                     2
-#define VHT_CAP_MCS_MAP_NONE                    3
+#define VHT_CAP_MCS_MAP_0_7						0
+#define VHT_CAP_MCS_MAP_0_8						1
+#define VHT_CAP_MCS_MAP_0_9						2
+#define VHT_CAP_MCS_MAP_NONE					3
 
-#define VHT_CAP_MCS_MAP_NSS_MAX                 8
-
-
-#define VHT_CAP_MCS_MAP_GET(mcsmap, nss, mcs) \
-	do { \
-		int i; \
-		for (i = 1; i <= nss; i++) { \
-			VHT_MCS_MAP_SET_MCS_PER_SS(i, mcs, mcsmap); \
-		} \
-	} while (0)
+#define VHT_CAP_MCS_MAP_NSS_MAX					8
 
 
 typedef enum vht_cap_chan_width {
-	VHT_CAP_CHAN_WIDTH_SUPPORT_MANDATORY = 0x00,
-	VHT_CAP_CHAN_WIDTH_SUPPORT_160       = 0x04,
-	VHT_CAP_CHAN_WIDTH_SUPPORT_160_8080  = 0x08
+	VHT_CAP_CHAN_WIDTH_20_40  = 0x00,
+	VHT_CAP_CHAN_WIDTH_80	  = 0x04,
+	VHT_CAP_CHAN_WIDTH_160	  = 0x08
 } vht_cap_chan_width_t;
 
 
 typedef enum vht_cap_max_mpdu_len {
-	VHT_CAP_MPDU_MAX_4K     = 0x00,
-	VHT_CAP_MPDU_MAX_8K     = 0x01,
-	VHT_CAP_MPDU_MAX_11K    = 0x02
+	VHT_CAP_MPDU_MAX_4K		= 0x00,
+	VHT_CAP_MPDU_MAX_8K		= 0x01,
+	VHT_CAP_MPDU_MAX_11K	= 0x02
 } vht_cap_max_mpdu_len_t;
-
-
-#define VHT_MPDU_LIMIT_4K        3895
-#define VHT_MPDU_LIMIT_8K        7991
-#define VHT_MPDU_LIMIT_11K      11454
-
-
 
 
 BWL_PRE_PACKED_STRUCT struct vht_op_ie {
@@ -2045,7 +2009,6 @@ BWL_PRE_PACKED_STRUCT struct vht_op_ie {
 	uint16	supp_mcs;  
 } BWL_POST_PACKED_STRUCT;
 typedef struct vht_op_ie vht_op_ie_t;
-
 
 #define VHT_OP_IE_LEN 5
 
@@ -2175,6 +2138,7 @@ BWL_PRE_PACKED_STRUCT struct dot11_timeout_ie {
 	uint32 value;		
 } BWL_POST_PACKED_STRUCT;
 typedef struct dot11_timeout_ie dot11_timeout_ie_t;
+
 
 
 BWL_PRE_PACKED_STRUCT struct dot11_gtk_ie {

@@ -4,27 +4,9 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: dhd_proto.h 340111 2012-06-21 01:55:08Z $
+ * $Id: dhd_proto.h 343390 2012-07-06 22:34:19Z $
  */
 
 #ifndef _dhd_proto_h_
@@ -34,7 +16,7 @@
 #include <wlioctl.h>
 
 #ifndef IOCTL_RESP_TIMEOUT
-#define IOCTL_RESP_TIMEOUT  20000 /* In milli second */
+#define IOCTL_RESP_TIMEOUT  2000  /* In milli second default value for Production FW */
 #endif /* IOCTL_RESP_TIMEOUT */
 
 /*
@@ -54,6 +36,10 @@ extern int dhd_prot_init(dhd_pub_t *dhdp);
 
 /* Stop protocol: sync w/dongle state. */
 extern void dhd_prot_stop(dhd_pub_t *dhdp);
+#ifdef PROP_TXSTATUS
+extern int dhd_wlfc_init(dhd_pub_t *dhd);
+extern void dhd_wlfc_deinit(dhd_pub_t *dhd);
+#endif /* PROP_TXSTATUS */
 
 /* Add any protocol-specific data header.
  * Caller must reserve prot_hdrlen prepend space.

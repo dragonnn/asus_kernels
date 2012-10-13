@@ -1,27 +1,9 @@
 /*
  * From FreeBSD 2.2.7: Fundamental constants relating to ethernet.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: ethernet.h 337270 2012-06-06 20:16:33Z $
+ * $Id: ethernet.h 309193 2012-01-19 00:03:57Z $
  */
 
 #ifndef _NET_ETHERNET_H_	      
@@ -122,21 +104,15 @@ BWL_PRE_PACKED_STRUCT struct	ether_addr {
 
 
 
-#define eacmp(a, b)	((((uint16 *)(a))[0] ^ ((uint16 *)(b))[0]) | \
-	                 (((uint16 *)(a))[1] ^ ((uint16 *)(b))[1]) | \
-	                 (((uint16 *)(a))[2] ^ ((uint16 *)(b))[2]))
-
-#define	ether_cmp(a, b)	eacmp(a, b)
+#define	ether_cmp(a, b)	(!(((short*)(a))[0] == ((short*)(b))[0]) | \
+			 !(((short*)(a))[1] == ((short*)(b))[1]) | \
+			 !(((short*)(a))[2] == ((short*)(b))[2]))
 
 
-#define eacopy(s, d) \
-do { \
-	((uint16 *)(d))[0] = ((const uint16 *)(s))[0]; \
-	((uint16 *)(d))[1] = ((const uint16 *)(s))[1]; \
-	((uint16 *)(d))[2] = ((const uint16 *)(s))[2]; \
-} while (0)
-
-#define	ether_copy(s, d) eacopy(s, d)
+#define	ether_copy(s, d) { \
+		((short*)(d))[0] = ((const short*)(s))[0]; \
+		((short*)(d))[1] = ((const short*)(s))[1]; \
+		((short*)(d))[2] = ((const short*)(s))[2]; }
 
 
 static const struct ether_addr ether_bcast = {{255, 255, 255, 255, 255, 255}};

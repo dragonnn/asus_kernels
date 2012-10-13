@@ -1,25 +1,7 @@
 /*
  * Linux cfg80211 driver - Dongle Host Driver (DHD) related
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
  * $Id: wl_cfg80211.c,v 1.1.4.1.2.14 2011/02/09 01:40:07 Exp $
  */
@@ -420,7 +402,7 @@ static void wl_cfg80211_bt_handler(struct work_struct *work)
 				__FUNCTION__));
 			btcx_inf->bt_state = BT_DHCP_OPPR_WIN;
 			mod_timer(&btcx_inf->timer,
-				jiffies + BT_DHCP_OPPR_WIN_TIME*HZ/1000);
+				jiffies + msecs_to_jiffies(BT_DHCP_OPPR_WIN_TIME));
 			btcx_inf->timer_on = 1;
 			break;
 
@@ -440,7 +422,7 @@ static void wl_cfg80211_bt_handler(struct work_struct *work)
 				wl_cfg80211_bt_setflag(btcx_inf->dev, TRUE);
 			btcx_inf->bt_state = BT_DHCP_FLAG_FORCE_TIMEOUT;
 			mod_timer(&btcx_inf->timer,
-				jiffies + BT_DHCP_FLAG_FORCE_TIME*HZ/1000);
+				jiffies + msecs_to_jiffies(BT_DHCP_FLAG_FORCE_TIME));
 			btcx_inf->timer_on = 1;
 			break;
 
@@ -547,15 +529,14 @@ int wl_cfg80211_set_btcoex_dhcp(struct net_device *dev, char *command)
 	strncpy((char *)&powermode_val, command + strlen("BTCOEXMODE") +1, 1);
 
 	if (strnicmp((char *)&powermode_val, "1", strlen("1")) == 0) {
-
-		WL_TRACE(("%s: DHCP session starts\n", __FUNCTION__));
+		WL_TRACE2(("%s: DHCP session starts\n", __FUNCTION__));
 
 #ifdef PKT_FILTER_SUPPORT
 		dhd->dhcp_in_progress = 1;
 
 		/* Disable packet filtering */
 		if (dhd_pkt_filter_enable && dhd->early_suspended) {
-			WL_TRACE(("DHCP in progressing , disable packet filter!!!\n"));
+			WL_TRACE2(("DHCP in progressing , disable packet filter!!!\n"));
 			for (i = 0; i < dhd->pktfilter_count; i++) {
 				dhd_pktfilter_offload_enable(dhd, dhd->pktfilter[i],
 				 0, dhd_master_mode);
@@ -609,10 +590,11 @@ int wl_cfg80211_set_btcoex_dhcp(struct net_device *dev, char *command)
 
 #ifdef PKT_FILTER_SUPPORT
 		dhd->dhcp_in_progress = 0;
+		WL_TRACE2(("%s: DHCP is complete \n", __FUNCTION__));
 
 		/* Enable packet filtering */
 		if (dhd_pkt_filter_enable && dhd->early_suspended) {
-			WL_TRACE(("DHCP is complete , enable packet filter!!!\n"));
+			WL_TRACE2(("DHCP is complete , enable packet filter!!!\n"));
 			for (i = 0; i < dhd->pktfilter_count; i++) {
 				dhd_pktfilter_offload_enable(dhd, dhd->pktfilter[i],
 				 1, dhd_master_mode);

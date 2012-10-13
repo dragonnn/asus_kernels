@@ -1,24 +1,6 @@
 /*
-* Copyright (C) 1999-2012, Broadcom Corporation
-* 
-*      Unless you and Broadcom execute a separate written software license
-* agreement governing use of this software, this software is licensed to you
-* under the terms of the GNU General Public License version 2 (the "GPL"),
-* available at http://www.broadcom.com/licenses/GPLv2.php, with the
-* following added to such license:
-* 
-*      As a special exception, the copyright holders of this software give you
-* permission to link this software with independent modules, and to copy and
-* distribute the resulting executable under terms of your choice, provided that
-* you also meet, for each linked independent module, the terms and conditions of
-* the license of that module.  An independent module is a module which is not
-* derived from this software.  The special exception does not apply to any
-* modifications of the software.
-* 
-*      Notwithstanding the above, under no circumstances may you combine this
-* software in any way with any other Broadcom software provided under a license
-* other than the GPL, without Broadcom's express prior written consent.
-* $Id: wlfc_proto.h 331161 2012-05-04 01:02:39Z $
+* $Copyright Open 2009 Broadcom Corporation$
+* $Id: wlfc_proto.h 347585 2012-07-27 09:02:53Z $
 *
 */
 #ifndef __wlfc_proto_definitions_h__
@@ -96,9 +78,7 @@
 #define WLFC_CTL_TYPE_NIC_PRD_START		15
 #define WLFC_CTL_TYPE_NIC_PRD_END		16
 #define WLFC_CTL_TYPE_AF_TXS			17
-
-#define WLFC_CTL_TYPE_TRANS_ID			18
-
+#define WLFC_CTL_TYPE_TRANS_ID                  18
 
 #define WLFC_CTL_TYPE_FILLER			255
 
@@ -228,8 +208,7 @@
 #define WLHOST_REORDERDATA_CURIDX_VALID		0x04
 #define WLHOST_REORDERDATA_EXPIDX_VALID		0x08
 #define WLHOST_REORDERDATA_NEW_HOLE		0x10
-
 /* transaction id data len byte 0: rsvd, byte 1: seqnumber, byte 2-5 will be used for timestampe */
-#define WLFC_CTL_TRANS_ID_LEN			6
+#define WLFC_CTL_TRANS_ID_LEN                   6
 
 #endif /* __wlfc_proto_definitions_h__ */

@@ -1,27 +1,9 @@
 /*
  * DHD Protocol Module for CDC and BDC.
  *
- * Copyright (C) 1999-2012, Broadcom Corporation
- * 
- *      Unless you and Broadcom execute a separate written software license
- * agreement governing use of this software, this software is licensed to you
- * under the terms of the GNU General Public License version 2 (the "GPL"),
- * available at http://www.broadcom.com/licenses/GPLv2.php, with the
- * following added to such license:
- * 
- *      As a special exception, the copyright holders of this software give you
- * permission to link this software with independent modules, and to copy and
- * distribute the resulting executable under terms of your choice, provided that
- * you also meet, for each linked independent module, the terms and conditions of
- * the license of that module.  An independent module is a module which is not
- * derived from this software.  The special exception does not apply to any
- * modifications of the software.
- * 
- *      Notwithstanding the above, under no circumstances may you combine this
- * software in any way with any other Broadcom software provided under a license
- * other than the GPL, without Broadcom's express prior written consent.
+ * $Copyright Open Broadcom Corporation$
  *
- * $Id: dhd_cdc.c 340483 2012-06-22 08:28:29Z $
+ * $Id: dhd_cdc.c 349167 2012-08-07 06:58:11Z $
  *
  * BDC is like CDC, except it includes a header for data packets to convey
  * packet priority over the bus, and flags (e.g. to indicate checksum status
@@ -69,6 +51,12 @@ typedef struct dhd_wlfc_commit_info {
 } dhd_wlfc_commit_info_t;
 #endif /* PROP_TXSTATUS */
 
+#if defined(CUSTOMER_HW4) && defined(DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS)
+extern uint sd_f2_blocksize;
+extern int
+dhdsdio_func_blocksize(dhd_pub_t *dhd, int function_num, int block_size);
+#endif /* CUSTOMER_HW4 && DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS */
+
 typedef struct dhd_prot {
 	uint16 reqid;
 	uint8 pending;
@@ -113,11 +101,19 @@ dhdcdc_cmplt(dhd_pub_t *dhd, uint32 id, uint32 len)
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
+#if defined(CUSTOMER_HW4)
+	DHD_OS_WAKE_LOCK(dhd);
+#endif 
+
 	do {
 		ret = dhd_bus_rxctl(dhd->bus, (uchar*)&prot->msg, cdc_len);
 		if (ret < 0)
 			break;
 	} while (CDC_IOC_ID(ltoh32(prot->msg.flags)) != id);
+
+#if defined(CUSTOMER_HW4)
+	DHD_OS_WAKE_UNLOCK(dhd);
+#endif 
 
 	return ret;
 }
@@ -210,6 +206,10 @@ done:
 	return ret;
 }
 
+#ifdef CONFIG_CONTROL_PM
+extern bool g_pm_control;
+#endif
+
 static int
 dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8 action)
 {
@@ -232,6 +232,14 @@ dhdcdc_set_ioctl(dhd_pub_t *dhd, int ifidx, uint cmd, void *buf, uint len, uint8
 			__FUNCTION__));
 		return -EIO;
 	}
+
+#ifdef CONFIG_CONTROL_PM
+	if ((g_pm_control == TRUE) && (cmd == WLC_SET_PM))
+	{
+		DHD_ERROR(("SET PM ignored!!!!!!!!!!!!!!!!!!!!!!\n"));
+		goto done;
+	}
+#endif
 
 	memset(msg, 0, sizeof(cdc_ioctl_t));
 
@@ -623,8 +631,6 @@ dhd_wlfc_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 		wlfc->stats.psq_d11sup_retx,
 		wlfc->stats.psq_wlsup_retx,
 		wlfc->stats.psq_hostq_retx);
-	bcm_bprintf(strbuf, "wlfc- generic error: %d", wlfc->stats.generic_error);
-
 	return;
 }
 
@@ -1128,7 +1134,6 @@ _dhd_wlfc_pretx_pktprocess(athost_wl_status_info_t* ctx,
 	WL_TXSTATUS_SET_FLAGS(htod, WLFC_PKTFLAG_PKTFROMHOST);
 	WL_TXSTATUS_SET_FIFO(htod, DHD_PKTTAG_FIFO(PKTTAG(p)));
 
-
 	if (!DHD_PKTTAG_CREDITCHECK(PKTTAG(p))) {
 		/*
 		Indicate that this packet is being sent in response to an
@@ -1239,7 +1244,7 @@ _dhd_wlfc_deque_delayedq(athost_wl_status_info_t* ctx,
 					 * i.e. suppressed packets before delayed ones
 					 */
 					NBITVAL((prec << 1) + 1), &pout);
-					*needs_hdr = 0;
+						*needs_hdr = 0;
 
 				if (p == NULL) {
 					if (entry->suppressed == TRUE) {
@@ -1839,7 +1844,7 @@ dhd_wlfc_txstatus_update(dhd_pub_t *dhd, uint8* pkt_info)
 		if (!entry->suppressed || entry->generation != WLFC_PKTID_GEN(status)) {
 			entry->suppressed = TRUE;
 			entry->suppress_count = pktq_mlen(&entry->psq,
-				NBITVAL((WL_TXSTATUS_GET_FIFO(status) << 1) + 1));
+			NBITVAL((WL_TXSTATUS_GET_FIFO(status) << 1) + 1));
 			entry->suppr_transit_count = entry->transit_count;
 		}
 		entry->generation = WLFC_PKTID_GEN(status);
@@ -1918,14 +1923,15 @@ dhd_wlfc_txstatus_update(dhd_pub_t *dhd, uint8* pkt_info)
 			/* indicate failure and free the packet */
 			dhd_txcomplete(dhd, pktbuf, FALSE);
 			entry->transit_count--;
-			/* packet is transmitted Successfully by dongle after first suppress. */
+			/* This packet is transmitted Successfully by
+			 *  dongle even after first suppress.
+			 */
 			if (entry->suppressed) {
 				entry->suppr_transit_count--;
 			}
 			PKTFREE(wlfc->osh, pktbuf, TRUE);
 		} else {
 			/* Mark suppressed to avoid a double free during wlfc cleanup */
-
 			dhd_wlfc_hanger_mark_suppressed(wlfc->hanger,
 			WLFC_PKTID_HSLOT_GET(status), WLFC_PKTID_GEN(status));
 			entry->suppress_count++;
@@ -2365,7 +2371,9 @@ dhd_wlfc_enable(dhd_pub_t *dhd)
 
 	wlfc->allow_credit_borrow = TRUE;
 	wlfc->borrow_defer_timestamp = 0;
-
+#if defined(CUSTOMER_HW4) && defined(DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS)
+	dhdsdio_func_blocksize(dhd, 2, VSDB_F2_BLKSIZE);
+#endif /* CUSTOMER_HW4 && DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS */
 	return BCME_OK;
 }
 
@@ -2379,10 +2387,15 @@ dhd_wlfc_cleanup(dhd_pub_t *dhd)
 		dhd->wlfc_state;
 	wlfc_mac_descriptor_t* table;
 	wlfc_hanger_t* h;
-
+	int prec;
+	void *pkt = NULL;
+	struct pktq *txq = NULL;
 	if (dhd->wlfc_state == NULL)
 		return;
-
+	/* flush bus->txq */
+	txq = dhd_bus_txq(dhd->bus);
+	/* any in the hanger? */
+	h = (wlfc_hanger_t*)wlfc->hanger;
 	total_entries = sizeof(wlfc->destination_entries)/sizeof(wlfc_mac_descriptor_t);
 	/* search all entries, include nodes as well as interfaces */
 	table = (wlfc_mac_descriptor_t*)&wlfc->destination_entries;
@@ -2401,8 +2414,26 @@ dhd_wlfc_cleanup(dhd_pub_t *dhd)
 	/* release packets held in SENDQ */
 	if (wlfc->SENDQ.len)
 		pktq_flush(wlfc->osh, &wlfc->SENDQ, TRUE, NULL, 0);
-	/* any in the hanger? */
-	h = (wlfc_hanger_t*)wlfc->hanger;
+	for (prec = 0; prec < txq->num_prec; prec++) {
+		pkt = pktq_pdeq(txq, prec);
+		while (pkt) {
+			for (i = 0; i < h->max_items; i++) {
+				if (pkt == h->items[i].pkt) {
+					if (h->items[i].state == WLFC_HANGER_ITEM_STATE_INUSE) {
+						PKTFREE(wlfc->osh, h->items[i].pkt, TRUE);
+						h->items[i].state = WLFC_HANGER_ITEM_STATE_FREE;
+					} else if (h->items[i].state ==
+						WLFC_HANGER_ITEM_STATE_INUSE_SUPPRESSED) {
+						/* These are already freed from the psq */
+						h->items[i].state = WLFC_HANGER_ITEM_STATE_FREE;
+					}
+					break;
+				}
+			}
+			pkt = pktq_pdeq(txq, prec);
+		}
+	}
+	/* flush remained pkt in hanger queue, not in bus->txq */
 	for (i = 0; i < h->max_items; i++) {
 		if (h->items[i].state == WLFC_HANGER_ITEM_STATE_INUSE) {
 			PKTFREE(wlfc->osh, h->items[i].pkt, TRUE);
@@ -2444,6 +2475,9 @@ dhd_wlfc_deinit(dhd_pub_t *dhd)
 	/* free top structure */
 	MFREE(dhd->osh, dhd->wlfc_state, sizeof(athost_wl_status_info_t));
 	dhd->wlfc_state = NULL;
+#if defined(CUSTOMER_HW4) && defined(DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS)
+	dhdsdio_func_blocksize(dhd, 2, sd_f2_blocksize);
+#endif /* CUSTOMER_HW4 && DYNAMIC_F2_BLKSIZE_OF_PROPTXSTATUS */
 	return;
 }
 #endif /* PROP_TXSTATUS */
@@ -2458,12 +2492,8 @@ dhd_prot_dump(dhd_pub_t *dhdp, struct bcmstrbuf *strbuf)
 #endif
 }
 
-/*	The FreeBSD PKTPUSH could change the packet buf pinter
-	so we need to make it changable
-*/
-#define PKTBUF pktbuf
 void
-dhd_prot_hdrpush(dhd_pub_t *dhd, int ifidx, void *PKTBUF)
+dhd_prot_hdrpush(dhd_pub_t *dhd, int ifidx, void *pktbuf)
 {
 #ifdef BDC
 	struct bdc_header *h;
@@ -2474,22 +2504,21 @@ dhd_prot_hdrpush(dhd_pub_t *dhd, int ifidx, void *PKTBUF)
 #ifdef BDC
 	/* Push BDC header used to convey priority for buses that don't */
 
-	PKTPUSH(dhd->osh, PKTBUF, BDC_HEADER_LEN);
+	PKTPUSH(dhd->osh, pktbuf, BDC_HEADER_LEN);
 
-	h = (struct bdc_header *)PKTDATA(dhd->osh, PKTBUF);
+	h = (struct bdc_header *)PKTDATA(dhd->osh, pktbuf);
 
 	h->flags = (BDC_PROTO_VER << BDC_FLAG_VER_SHIFT);
-	if (PKTSUMNEEDED(PKTBUF))
+	if (PKTSUMNEEDED(pktbuf))
 		h->flags |= BDC_FLAG_SUM_NEEDED;
 
 
-	h->priority = (PKTPRIO(PKTBUF) & BDC_PRIORITY_MASK);
+	h->priority = (PKTPRIO(pktbuf) & BDC_PRIORITY_MASK);
 	h->flags2 = 0;
 	h->dataOffset = 0;
 #endif /* BDC */
 	BDC_SET_IF_IDX(h, ifidx);
 }
-#undef PKTBUF	/* Only defined in the above routine */
 
 int
 dhd_prot_hdrpull(dhd_pub_t *dhd, int *ifidx, void *pktbuf, uchar *reorder_buf_info,
