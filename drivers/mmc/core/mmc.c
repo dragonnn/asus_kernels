@@ -20,7 +20,9 @@
 #include "core.h"
 #include "bus.h"
 #include "mmc_ops.h"
+#include "sd_ops.h"
 
+#include "../debug_mmc.h"
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -94,6 +96,7 @@ static int mmc_decode_cid(struct mmc_card *card)
 		card->cid.prod_name[3]	= UNSTUFF_BITS(resp, 72, 8);
 		card->cid.prod_name[4]	= UNSTUFF_BITS(resp, 64, 8);
 		card->cid.prod_name[5]	= UNSTUFF_BITS(resp, 56, 8);
+		card->cid.prv	= UNSTUFF_BITS(resp, 48, 8);
 		card->cid.serial	= UNSTUFF_BITS(resp, 16, 32);
 		card->cid.month		= UNSTUFF_BITS(resp, 12, 4);
 		card->cid.year		= UNSTUFF_BITS(resp, 8, 4) + 1997;
@@ -104,6 +107,8 @@ static int mmc_decode_cid(struct mmc_card *card)
 			mmc_hostname(card->host), card->csd.mmca_vsn);
 		return -EINVAL;
 	}
+
+	MMC_printk("cid.prv 0x%x", card->cid.prv);
 
 	return 0;
 }
@@ -251,6 +256,8 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 			ext_csd[EXT_CSD_SEC_CNT + 1] << 8 |
 			ext_csd[EXT_CSD_SEC_CNT + 2] << 16 |
 			ext_csd[EXT_CSD_SEC_CNT + 3] << 24;
+		MMC_printk("ext_csd.sectors 0x%x prod_name %s BOOT_SIZE_MULTI 0x%x", card->ext_csd.sectors, card->cid.prod_name, ext_csd[EXT_CSD_BOOT_SIZE_MULTI]);
+		card->ext_csd.sec_count = card->ext_csd.sectors;
 
 		/* Cards with density > 2GiB are sector addressed */
 		if (card->ext_csd.sectors > (2u * 1024 * 1024 * 1024) / 512)
@@ -350,6 +357,27 @@ static int mmc_read_ext_csd(struct mmc_card *card)
 			ext_csd[EXT_CSD_TRIM_MULT];
 	}
 
+	if (card->ext_csd.rev >= 5) {
+		/* check whether the eMMC card supports HPI */
+		if (ext_csd[EXT_CSD_HPI_FEATURES] & 0x1) {
+			card->ext_csd.hpi = 1;
+			if (ext_csd[EXT_CSD_HPI_FEATURES] & 0x2)
+				card->ext_csd.hpi_cmd =	MMC_STOP_TRANSMISSION;
+			else
+				card->ext_csd.hpi_cmd = MMC_SEND_STATUS;
+			/*
+			 * Indicate the maximum timeout to close
+			 * a command interrupted by HPI
+			 */
+			card->ext_csd.out_of_int_time =
+				ext_csd[EXT_CSD_OUT_OF_INTERRUPT_TIME] * 10;
+		}
+
+		/* Check whether the eMMC card supports background ops */
+		if (ext_csd[EXT_CSD_BKOPS_SUPPORT] & 0x1)
+			card->ext_csd.bk_ops = 1;
+	}
+
 	if (ext_csd[EXT_CSD_ERASED_MEM_CONT])
 		card->erased_byte = 0xFF;
 	else
@@ -377,6 +405,8 @@ MMC_DEV_ATTR(serial, "0x%08x\n", card->cid.serial);
 MMC_DEV_ATTR(enhanced_area_offset, "%llu\n",
 		card->ext_csd.enhanced_area_offset);
 MMC_DEV_ATTR(enhanced_area_size, "%u\n", card->ext_csd.enhanced_area_size);
+MMC_DEV_ATTR(sec_count, "0x%x\n", card->ext_csd.sec_count);
+MMC_DEV_ATTR(prv, "0x%x\n", card->cid.prv);
 
 static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_cid.attr,
@@ -392,6 +422,8 @@ static struct attribute *mmc_std_attrs[] = {
 	&dev_attr_serial.attr,
 	&dev_attr_enhanced_area_offset.attr,
 	&dev_attr_enhanced_area_size.attr,
+	&dev_attr_sec_count.attr,
+	&dev_attr_prv.attr,
 	NULL,
 };
 
@@ -516,25 +548,23 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			goto free_card;
 	}
 
-	if (!oldcard) {
-		/*
-		 * Fetch and process extended CSD.
-		 */
-		err = mmc_read_ext_csd(card);
-		if (err)
-			goto free_card;
+	/*
+	 * Fetch and process extended CSD.
+	 */
+	err = mmc_read_ext_csd(card);
+	if (err)
+		goto free_card;
 
-		/* If doing byte addressing, check if required to do sector
-		 * addressing.  Handle the case of <2GB cards needing sector
-		 * addressing.  See section 8.1 JEDEC Standard JED84-A441;
-		 * ocr register has bit 30 set for sector addressing.
-		 */
-		if (!(mmc_card_blockaddr(card)) && (rocr & (1<<30)))
-			mmc_card_set_blockaddr(card);
+	/* If doing byte addressing, check if required to do sector
+	 * addressing.  Handle the case of <2GB cards needing sector
+	 * addressing.  See section 8.1 JEDEC Standard JED84-A441;
+	 * ocr register has bit 30 set for sector addressing.
+	 */
+	if (!(mmc_card_blockaddr(card)) && (rocr & (1<<30)))
+		mmc_card_set_blockaddr(card);
 
-		/* Erase size depends on CSD and Extended CSD */
-		mmc_set_erase_size(card);
-	}
+	/* Erase size depends on CSD and Extended CSD */
+	mmc_set_erase_size(card);
 
 	/*
 	 * If enhanced_area_en is TRUE, host needs to enable ERASE_GRP_DEF
@@ -588,6 +618,40 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	/*
+	 * Enable HPI feature (if supported)
+	 */
+	if (card->ext_csd.hpi && (card->host->caps & MMC_CAP_BKOPS)) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			EXT_CSD_HPI_MGMT, 1);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warning("%s: Enabling HPI failed\n",
+				   mmc_hostname(card->host));
+			err = 0;
+		} else {
+			card->ext_csd.hpi_en = 1;
+		}
+	}
+
+	/*
+	 * Enable Background ops feature (if supported)
+	 */
+	if (card->ext_csd.bk_ops && (card->host->caps & MMC_CAP_BKOPS)) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			EXT_CSD_BKOPS_EN, 1);
+		if (err && err != -EBADMSG)
+			goto free_card;
+		if (err) {
+			pr_warning("%s: Enabling BK ops failed\n",
+				   mmc_hostname(card->host));
+			err = 0;
+		} else {
+			card->ext_csd.bk_ops_en = 1;
+		}
+	}
+
+	/*
 	 * Compute bus speed.
 	 */
 	max_dtr = (unsigned int)-1;
@@ -606,10 +670,14 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 	 */
 	if (mmc_card_highspeed(card)) {
 		if ((card->ext_csd.card_type & EXT_CSD_CARD_TYPE_DDR_1_8V)
-			&& (host->caps & (MMC_CAP_1_8V_DDR)))
+			&& ((host->caps & (MMC_CAP_1_8V_DDR |
+			     MMC_CAP_UHS_DDR50))
+				== (MMC_CAP_1_8V_DDR | MMC_CAP_UHS_DDR50)))
 				ddr = MMC_1_8V_DDR_MODE;
 		else if ((card->ext_csd.card_type & EXT_CSD_CARD_TYPE_DDR_1_2V)
-			&& (host->caps & (MMC_CAP_1_2V_DDR)))
+			&& ((host->caps & (MMC_CAP_1_2V_DDR |
+			     MMC_CAP_UHS_DDR50))
+				== (MMC_CAP_1_2V_DDR | MMC_CAP_UHS_DDR50)))
 				ddr = MMC_1_2V_DDR_MODE;
 	}
 
@@ -642,8 +710,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 					 EXT_CSD_BUS_WIDTH,
 					 ext_csd_bits[idx][0]);
 			if (!err) {
-				mmc_set_bus_width_ddr(card->host,
-						      bus_width, MMC_SDR_MODE);
+				mmc_set_bus_width(card->host, bus_width);
 				/*
 				 * If controller can't handle bus width test,
 				 * use the highest bus width to maintain
@@ -668,8 +735,29 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 				1 << bus_width, ddr);
 			goto free_card;
 		} else if (ddr) {
+			/*
+			 * eMMC cards can support 3.3V to 1.2V i/o (vccq)
+			 * signaling.
+			 *
+			 * EXT_CSD_CARD_TYPE_DDR_1_8V means 3.3V or 1.8V vccq.
+			 *
+			 * 1.8V vccq at 3.3V core voltage (vcc) is not required
+			 * in the JEDEC spec for DDR.
+			 *
+			 * Do not force change in vccq since we are obviously
+			 * working and no change to vccq is needed.
+			 *
+			 * WARNING: eMMC rules are NOT the same as SD DDR
+			 */
+			if (ddr == EXT_CSD_CARD_TYPE_DDR_1_2V) {
+				err = mmc_set_signal_voltage(host,
+					MMC_SIGNAL_VOLTAGE_120);
+				if (err)
+					goto err;
+			}
 			mmc_card_set_ddr_mode(card);
-			mmc_set_bus_width_ddr(card->host, bus_width, ddr);
+			mmc_set_timing(card->host, MMC_TIMING_UHS_DDR50);
+			mmc_set_bus_width(card->host, bus_width);
 		}
 	}
 
@@ -701,7 +789,7 @@ static void mmc_remove(struct mmc_host *host)
 /*
  * Card detection callback from host.
  */
-static void mmc_detect(struct mmc_host *host)
+static int mmc_detect(struct mmc_host *host)
 {
 	int err;
 
@@ -724,6 +812,7 @@ static void mmc_detect(struct mmc_host *host)
 		mmc_detach_bus(host);
 		mmc_release_host(host);
 	}
+	return err;
 }
 
 /*

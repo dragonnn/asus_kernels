@@ -201,7 +201,10 @@ static int tdi_in_host_mode (struct ehci_hcd *ehci)
 	u32 __iomem	*reg_ptr;
 	u32		tmp;
 
-	reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
+	if (ehci->has_hostpc)
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE_EX);
+	else
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
 	tmp = ehci_readl(ehci, reg_ptr);
 	return (tmp & 3) == USBMODE_CM_HC;
 }
@@ -275,7 +278,10 @@ static int ehci_reset (struct ehci_hcd *ehci)
 
 	command |= CMD_RESET;
 	dbg_cmd (ehci, "reset", command);
-	ehci_writel(ehci, command, &ehci->regs->command);
+#ifdef CONFIG_USB_EHCI_TEGRA
+	if (!ehci->controller_resets_phy)
+#endif
+		ehci_writel(ehci, command, &ehci->regs->command);
 	ehci_to_hcd(ehci)->state = HC_STATE_HALT;
 	ehci->next_statechange = jiffies;
 	retval = handshake (ehci, &ehci->regs->command,
@@ -441,12 +447,16 @@ static void ehci_shutdown(struct usb_hcd *hcd)
 {
 	struct ehci_hcd	*ehci = hcd_to_ehci(hcd);
 
+	pr_info("%s+\n", __func__);
+
 	del_timer_sync(&ehci->watchdog);
 	del_timer_sync(&ehci->iaa_watchdog);
 
 	spin_lock_irq(&ehci->lock);
 	ehci_silence_controller(ehci);
 	spin_unlock_irq(&ehci->lock);
+
+	pr_info("%s-\n", __func__);
 }
 
 static void ehci_port_power (struct ehci_hcd *ehci, int is_on)

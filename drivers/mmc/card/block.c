@@ -40,7 +40,9 @@
 #include <asm/system.h>
 #include <asm/uaccess.h>
 
+#include <linux/gpio.h>
 #include "queue.h"
+#include "../debug_mmc.h"
 
 MODULE_ALIAS("mmc:block");
 #ifdef MODULE_PARAM_PREFIX
@@ -50,6 +52,14 @@ MODULE_ALIAS("mmc:block");
 
 static DEFINE_MUTEX(block_mutex);
 
+#define INAND_CMD38_ARG_EXT_CSD  113
+#define INAND_CMD38_ARG_ERASE    0x00
+#define INAND_CMD38_ARG_TRIM     0x01
+#define INAND_CMD38_ARG_SECERASE 0x80
+#define INAND_CMD38_ARG_SECTRIM1 0x81
+#define INAND_CMD38_ARG_SECTRIM2 0x88
+
+#define MMC_CMD_RETRIES 3
 /*
  * The defaults come from config options but can be overriden by module
  * or bootarg options.
@@ -102,11 +112,7 @@ static void mmc_blk_put(struct mmc_blk_data *md)
 	mutex_lock(&open_lock);
 	md->usage--;
 	if (md->usage == 0) {
-		int devmaj = MAJOR(disk_devt(md->disk));
-		int devidx = MINOR(disk_devt(md->disk)) / perdev_minors;
-
-		if (!devmaj)
-			devidx = md->disk->first_minor / perdev_minors;
+		int devidx = md->disk->first_minor / perdev_minors;
 
 		blk_cleanup_queue(md->queue.queue);
 
@@ -284,6 +290,15 @@ static int mmc_blk_issue_discard_rq(struct mmc_queue *mq, struct request *req)
 	else
 		arg = MMC_ERASE_ARG;
 
+	if (card->quirks & MMC_QUIRK_INAND_CMD38) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				 INAND_CMD38_ARG_EXT_CSD,
+				 arg == MMC_TRIM_ARG ?
+				 INAND_CMD38_ARG_TRIM :
+				 INAND_CMD38_ARG_ERASE);
+		if (err)
+			goto out;
+	}
 	err = mmc_erase(card, from, nr, arg);
 out:
 	spin_lock_irq(&md->lock);
@@ -318,9 +333,26 @@ static int mmc_blk_issue_secdiscard_rq(struct mmc_queue *mq,
 	else
 		arg = MMC_SECURE_ERASE_ARG;
 
+	if (card->quirks & MMC_QUIRK_INAND_CMD38) {
+		err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+				 INAND_CMD38_ARG_EXT_CSD,
+				 arg == MMC_SECURE_TRIM1_ARG ?
+				 INAND_CMD38_ARG_SECTRIM1 :
+				 INAND_CMD38_ARG_SECERASE);
+		if (err)
+			goto out;
+	}
 	err = mmc_erase(card, from, nr, arg);
-	if (!err && arg == MMC_SECURE_TRIM1_ARG)
+	if (!err && arg == MMC_SECURE_TRIM1_ARG) {
+		if (card->quirks & MMC_QUIRK_INAND_CMD38) {
+			err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+					 INAND_CMD38_ARG_EXT_CSD,
+					 INAND_CMD38_ARG_SECTRIM2);
+			if (err)
+				goto out;
+		}
 		err = mmc_erase(card, from, nr, MMC_SECURE_TRIM2_ARG);
+	}
 out:
 	spin_lock_irq(&md->lock);
 	__blk_end_request(req, err, blk_rq_bytes(req));
@@ -341,6 +373,10 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	mmc_claim_host(card->host);
 
 	do {
+		if (mmc_card_sd(card) && gpio_get_value(SD_CARD_DETECT) == 1) {
+			MMC_DBG("No card, stop read or write");
+			goto err;
+		}
 		struct mmc_command cmd;
 		u32 readcmd, writecmd, status = 0;
 
@@ -352,6 +388,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		if (!mmc_card_blockaddr(card))
 			brq.cmd.arg <<= 9;
 		brq.cmd.flags = MMC_RSP_SPI_R1 | MMC_RSP_R1 | MMC_CMD_ADTC;
+		brq.cmd.retries = MMC_CMD_RETRIES;
 		brq.data.blksz = 512;
 		brq.stop.opcode = MMC_STOP_TRANSMISSION;
 		brq.stop.arg = 0;
@@ -422,6 +459,9 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 
 		mmc_queue_bounce_pre(mq);
 
+		if (mmc_card_sd(card) && gpio_get_value(SD_CARD_DETECT) == 1)
+			goto err;
+
 		mmc_wait_for_req(card->host, &brq.mrq);
 
 		mmc_queue_bounce_post(mq);
@@ -439,7 +479,11 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 				disable_multi = 1;
 				continue;
 			}
+			if (mmc_card_sd(card) && gpio_get_value(SD_CARD_DETECT) == 1)
+				goto err;
 			status = get_card_status(card, req);
+		} else if (disable_multi == 1) {
+			disable_multi = 0;
 		}
 
 		if (brq.cmd.error) {
@@ -447,6 +491,8 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 			       "command, response %#x, card status %#x\n",
 			       req->rq_disk->disk_name, brq.cmd.error,
 			       brq.cmd.resp[0], status);
+			if (brq.cmd.error == -ENOMEDIUM)
+				goto cmd_err;
 		}
 
 		if (brq.data.error) {
@@ -520,6 +566,9 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		spin_unlock_irq(&md->lock);
 	} while (ret);
 
+	if (brq.cmd.resp[0] & R1_URGENT_BKOPS)
+		mmc_card_set_need_bkops(card);
+
 	mmc_release_host(card->host);
 
 	return 1;
@@ -547,7 +596,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		ret = __blk_end_request(req, 0, brq.data.bytes_xfered);
 		spin_unlock_irq(&md->lock);
 	}
-
+err:
 	mmc_release_host(card->host);
 
 	spin_lock_irq(&md->lock);
@@ -558,14 +607,31 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	return 0;
 }
 
+static int
+mmc_blk_set_blksize(struct mmc_blk_data *md, struct mmc_card *card);
+
 static int mmc_blk_issue_rq(struct mmc_queue *mq, struct request *req)
 {
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	struct mmc_blk_data *md = mq->data;
+	struct mmc_card *card = md->queue.card;
+
+	if (mmc_bus_needs_resume(card->host)) {
+		mmc_resume_bus(card->host);
+		mmc_blk_set_blksize(md, card);
+	}
+#endif
+
 	if (req->cmd_flags & REQ_DISCARD) {
 		if (req->cmd_flags & REQ_SECURE)
 			return mmc_blk_issue_secdiscard_rq(mq, req);
 		else
 			return mmc_blk_issue_discard_rq(mq, req);
 	} else {
+		/* Abort any current bk ops of eMMC card by issuing HPI */
+		if (mmc_card_mmc(mq->card) && mmc_card_doing_bkops(mq->card))
+			mmc_interrupt_hpi(mq->card);
+
 		return mmc_blk_issue_rw_rq(mq, req);
 	}
 }
@@ -621,6 +687,7 @@ static struct mmc_blk_data *mmc_blk_alloc(struct mmc_card *card)
 	md->disk->private_data = md;
 	md->disk->queue = md->queue.queue;
 	md->disk->driverfs_dev = &card->dev;
+	md->disk->flags = GENHD_FL_EXT_DEVT;
 	set_disk_ro(md->disk, md->read_only);
 
 	/*
@@ -682,6 +749,13 @@ mmc_blk_set_blksize(struct mmc_blk_data *md, struct mmc_card *card)
 	return 0;
 }
 
+static const struct mmc_fixup blk_fixups[] =
+{
+	MMC_FIXUP("SEM16G", 0x2, 0x100, add_quirk, MMC_QUIRK_INAND_CMD38),
+	MMC_FIXUP("SEM32G", 0x2, 0x100, add_quirk, MMC_QUIRK_INAND_CMD38),
+	END_FIXUP
+};
+
 static int mmc_blk_probe(struct mmc_card *card)
 {
 	struct mmc_blk_data *md;
@@ -709,6 +783,11 @@ static int mmc_blk_probe(struct mmc_card *card)
 		cap_str, md->read_only ? "(ro)" : "");
 
 	mmc_set_drvdata(card, md);
+	mmc_fixup_device(card, blk_fixups);
+
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	mmc_set_bus_resume_policy(card->host, 1);
+#endif
 	add_disk(md->disk);
 	return 0;
 
@@ -733,6 +812,11 @@ static void mmc_blk_remove(struct mmc_card *card)
 		mmc_blk_put(md);
 	}
 	mmc_set_drvdata(card, NULL);
+#ifdef CONFIG_MMC_BLOCK_DEFERRED_RESUME
+	mmc_set_bus_resume_policy(card->host, 0);
+	card->host->bus_resume_flags &= ~MMC_BUSRESUME_NEEDS_RESUME;
+	MMC_printk("%s: bus_resume_flags 0x%x", mmc_hostname(card->host), card->host->bus_resume_flags);
+#endif
 }
 
 #ifdef CONFIG_PM
@@ -751,7 +835,9 @@ static int mmc_blk_resume(struct mmc_card *card)
 	struct mmc_blk_data *md = mmc_get_drvdata(card);
 
 	if (md) {
+#ifndef CONFIG_MMC_BLOCK_DEFERRED_RESUME
 		mmc_blk_set_blksize(md, card);
+#endif
 		mmc_queue_resume(&md->queue);
 	}
 	return 0;

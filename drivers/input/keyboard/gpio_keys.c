@@ -3,6 +3,8 @@
  *
  * Copyright 2005 Phil Blundell
  *
+ * Copyright 2010-2011 NVIDIA Corporation
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
@@ -323,6 +325,18 @@ static void gpio_keys_report_event(struct gpio_button_data *bdata)
 	struct input_dev *input = bdata->input;
 	unsigned int type = button->type ?: EV_KEY;
 	int state = (gpio_get_value_cansleep(button->gpio) ? 1 : 0) ^ button->active_low;
+	static int prev_state = 0;
+
+	if (button->code == KEY_POWER) {
+		if (!prev_state && (prev_state == state)) {
+			pr_info("gpio_keys: Reported pressed KEY_POWER\n");
+			input_event(input, type, button->code, 1);
+			input_sync(input);
+		}
+		prev_state = state;
+		pr_info("gpio_keys: %s KEY_POWER\n",
+			state ? "Pressed" : "Released");
+	}
 
 	input_event(input, type, button->code, !!state);
 	input_sync(input);
@@ -576,6 +590,8 @@ static int gpio_keys_suspend(struct device *dev)
 	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
 	int i;
 
+	dev_info(dev, "suspending");
+
 	if (device_may_wakeup(&pdev->dev)) {
 		for (i = 0; i < pdata->nbuttons; i++) {
 			struct gpio_keys_button *button = &pdata->buttons[i];
@@ -586,6 +602,8 @@ static int gpio_keys_suspend(struct device *dev)
 		}
 	}
 
+	dev_info(dev, "suspended");
+
 	return 0;
 }
 
@@ -594,7 +612,13 @@ static int gpio_keys_resume(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct gpio_keys_drvdata *ddata = platform_get_drvdata(pdev);
 	struct gpio_keys_platform_data *pdata = pdev->dev.platform_data;
+	int wakeup_key = KEY_RESERVED;
 	int i;
+
+	dev_info(dev, "resuming");
+
+	if (pdata->wakeup_key)
+		wakeup_key = pdata->wakeup_key();
 
 	for (i = 0; i < pdata->nbuttons; i++) {
 
@@ -602,11 +626,19 @@ static int gpio_keys_resume(struct device *dev)
 		if (button->wakeup && device_may_wakeup(&pdev->dev)) {
 			int irq = gpio_to_irq(button->gpio);
 			disable_irq_wake(irq);
-		}
 
-		gpio_keys_report_event(&ddata->data[i]);
+			if (wakeup_key == button->code) {
+				unsigned int type = button->type ?: EV_KEY;
+
+				input_event(ddata->input, type, button->code, 1);
+				input_event(ddata->input, type, button->code, 0);
+				input_sync(ddata->input);
+			}
+		}
 	}
 	input_sync(ddata->input);
+
+	dev_info(dev, "resumed");
 
 	return 0;
 }
