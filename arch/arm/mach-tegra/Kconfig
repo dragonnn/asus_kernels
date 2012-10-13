@@ -7,6 +7,34 @@ config TEGRA_OC
 	depends on TEGRA_EDP_LIMITS
 	default n
 
+config GPU_OVERCLOCK
+	bool "Enable GPU overclock for Tegra3"
+	depends on TEGRA_SILICON_PLATFORM
+	default n
+	help
+	Choose y to overclock the GPU. 
+	If Off, clock speed is 416MHz.
+	If On, GPU clock speed can be selected.
+
+choice
+
+	depends on GPU_OVERCLOCK
+	prompt "Maximum GPU Rate"
+	default GPU_OC_484
+	---help---
+	  Select the desired GPU overclock rate.
+
+	  If you are not sure what you are doing, leave this
+	  option alone!
+	config GPU_OC_446
+		bool "446 MHz"
+	config GPU_OC_484
+		bool "484 MHz"
+	config GPU_OC_520
+		bool "520 MHz"
+
+endchoice
+
 config ARCH_TEGRA_2x_SOC
 	bool "Tegra 2 family SOC"
 	default y
