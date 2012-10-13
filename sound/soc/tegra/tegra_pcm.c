@@ -44,6 +44,7 @@
 
 #define PERIOD_BYTES_MAX	(PAGE_SIZE * 2)
 #define PERIODS_MAX		64
+
 static const struct snd_pcm_hardware tegra_pcm_hardware = {
 	.info			= SNDRV_PCM_INFO_MMAP |
 				  SNDRV_PCM_INFO_MMAP_VALID |
@@ -437,7 +438,8 @@ void tegra_pcm_free(struct snd_pcm *pcm)
 
 static int tegra_pcm_probe(struct snd_soc_platform *platform)
 {
-	if(machine_is_kai() || machine_is_tegra_enterprise())
+	if(machine_is_kai() || machine_is_tegra_enterprise() ||
+		machine_is_cardhu())
 		platform->dapm.idle_bias_off = 1;
 
 	return 0;

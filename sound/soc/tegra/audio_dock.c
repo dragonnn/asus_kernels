@@ -37,7 +37,6 @@ extern bool lineout_alive;
 static bool audio_dock_in = false;
 static bool audio_stand_in = false;
 static struct snd_soc_codec *audio_codec;
-bool g_dock_support = true;
 
 bool isAudioStandIn(void)
 {
@@ -49,11 +48,6 @@ EXPORT_SYMBOL(audio_stand_in);
 int audio_stand_route(bool status)
 {
 	struct snd_soc_dapm_context *dapm = NULL;
-
-	if(!g_dock_support){
-		printk("%s: this device won't support audio-dock nor conect-dock\n", __func__);
-		return 0;
-	}
 
 	if(audio_codec == NULL){
 		printk("%s: audio_codec is NULL\n", __func__);
@@ -87,11 +81,6 @@ int audio_dock_in_out(u8 status)
 
 	audio_dock_in = (status == AUDIO_DOCK) ? true : false;
 	audio_stand_in = (status == AUDIO_STAND) ? true : false;
-
-	if(!g_dock_support){
-		printk("%s: this device won't support audio-dock nor conect-dock\n", __func__);
-		return 0;
-	}
 
 	if(audio_codec == NULL){
 		printk("%s: audio_codec is NULL\n", __func__);
@@ -138,10 +127,6 @@ void audio_dock_init(void)
 		case TEGRA3_PROJECT_TF300TG:
 		case TEGRA3_PROJECT_TF300TL:
 		case TEGRA3_PROJECT_TF700T:
-			if(project_info == TEGRA3_PROJECT_TF300TG && tegra3_query_audio_codec_pcbid() !=
-				TEGRA3_DEVKIT_MISC_HW_0_ACODEC_3){
-				g_dock_support = false;
-			}
 			audio_codec = rt5631_audio_codec;
 			break;
 		case TEGRA3_PROJECT_TF300T:

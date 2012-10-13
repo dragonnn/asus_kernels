@@ -43,6 +43,7 @@
 #define VIRTUAL_REG_FOR_MISC_FUNC 0x99
 #endif
 
+#undef DSP_IOCONTROL_ENABLE
 #define AUDIO_IOC_MAGIC	0xf7
 #define AUDIO_CAPTURE_MODE _IOW(AUDIO_IOC_MAGIC, 6,int)
 #define AUDIO_STRESS_TEST	_IOW(AUDIO_IOC_MAGIC, 1,int)
@@ -69,9 +70,11 @@ static int audio_codec_status = 0;
 static int input_source=INPUT_SOURCE_NORMAL;
 static int output_source=OUTPUT_SOURCE_NORMAL;
 static int input_agc = INPUT_SOURCE_NO_AGC;
+
 static bool spk_out_flag = false;
 static bool ADC_flag = false;
 static bool DMIC_flag= true;   //heaset = false;
+
 extern bool isRecording;
 extern int asuspec_audio_recording(int);
 
@@ -124,7 +127,7 @@ static struct rt5640_init_reg init_list[] = {
 //	{RT5640_HPO_MIXER	, 0xa000},//DAC1 -> HPOLMIX
 	{RT5640_SPK_L_MIXER	, 0x0836},//DACL1 -> SPKMIXL
 	{RT5640_SPK_R_MIXER	, 0x0836},//DACR1 -> SPKMIXR
-	{RT5640_SPK_VOL		, 0x8787},//SPKMIX -> SPKVOL
+	{RT5640_SPK_VOL		, 0x8686},//SPKMIX -> SPKVOL
 	{RT5640_SPO_L_MIXER	, 0xe800},//SPKVOLL -> SPOLMIX
 	{RT5640_SPO_R_MIXER	, 0x2800},//SPKVOLR -> SPORMIX
 //	{RT5640_SPO_L_MIXER	, 0xb800},//DAC -> SPOLMIX
@@ -137,7 +140,7 @@ static struct rt5640_init_reg init_list[] = {
 //	{RT5640_REC_R2_MIXER	, 0x007d},//Mic1 -> RECMIXR
 	{RT5640_REC_L2_MIXER	, 0x006f},//Mic2 -> RECMIXL
 	{RT5640_REC_R2_MIXER	, 0x006f},//Mic2 -> RECMIXR
-	{RT5640_STO_ADC_MIXER	, 0x1000},//ADC -> Sto ADC mixer
+	{RT5640_STO_ADC_MIXER	, 0x5040},//ADC -> Sto ADC mixer
 	{RT5640_SPO_CLSD_RATIO , 0x0006},
 #ifdef RT5640_DET_EXT_MIC
 	{RT5640_MICBIAS	, 0x3800},/* enable MICBIAS short current */
@@ -273,7 +276,7 @@ static HW_EQ_PRESET HwEq_Preset[]={
 	{OPPO  ,{0x0000,0x0000,0xCA4A,0x17F8,0x0FEC,0xCA4A,0x17F8,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000},0x000F},
 	{TREBLE,{0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x188D,0x1699,0x0000,0x0000,0x0000},0x0020},
 	{BASS  ,{0x1A43,0x0C00,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000,0x0000},0x0001},
-	{TF500T  ,{0x1C10,0x0000,0xC142,0x1EC4,0x1D18,0xC12B,0x1EF8,0x0699,0xCA2D,0x1A43,0x0C73,0xEFB6,0x12AF,0xF805,0x065D,0x0FEC,0x1F8E,0x0070,0x1F8F},0x007E},
+	{TF500T  ,{0x1C10,0x0000,0xC210,0x1DF8,0x1D18,0xC21D,0x1E5E,0xF805,0xCB34,0x188D,0x0699,0xEE23,0x0EAD,0xF5AE,0x0D41,0x1D18,0x1FA5,0x005A,0x1FA5},0x007E},
 };
 
 //*************************************************************************************************
@@ -508,8 +511,8 @@ static void rt5640_update_eqmode(struct snd_soc_codec *codec, int mode)
 		}
 		switch(project_info){
 			case TEGRA3_PROJECT_TF500T:
-				rt5640_index_write(codec,RT5640_EQ_PRE_VOL,0x0202);
-				rt5640_index_write(codec,RT5640_EQ_PST_VOL,0x0B4C);
+				rt5640_index_write(codec,RT5640_EQ_PRE_VOL,0x02D6);
+				rt5640_index_write(codec,RT5640_EQ_PST_VOL,0x0800);
 				break;
 			case TEGRA3_PROJECT_P1801:
 				break;
@@ -960,6 +963,7 @@ static int rt5640_set_gain(struct snd_kcontrol *kcontrol,
 	unsigned int project_info = 0;
 	int ret = 0;
 	project_info = tegra3_get_project_id();
+	isRecording = true;
 	mutex_lock(&codec->mutex);
 	if(ucontrol->value.enumerated.item[0]){
 		printk("%s(): set AMIC parameter\n", __func__);
@@ -967,16 +971,20 @@ static int rt5640_set_gain(struct snd_kcontrol *kcontrol,
 		/* set heaset mic gain */
 		switch(project_info){
 			case TEGRA3_PROJECT_TF500T:
+				tps6591x_set_reg_enable_record();
+				asuspec_audio_recording(true);
 				if(!spk_out_flag){
 					snd_soc_write(codec, RT5640_DRC_AGC_1,0x2202);
 					snd_soc_write(codec, RT5640_DRC_AGC_2,0x1f00);
 					snd_soc_write(codec, RT5640_DRC_AGC_3,0x0000);
 				}
 				snd_soc_update_bits(codec, RT5640_IN3_IN4,RT5640_BST_MASK2,
-					0x0100);
+					0x0200);
 				snd_soc_update_bits(codec, RT5640_ADC_DIG_VOL,
 					RT5640_ADC_L_VOL_MASK | RT5640_ADC_L_VOL_MASK,
 					0x7272);
+				snd_soc_update_bits(codec, RT5640_STO_ADC_MIXER,
+					0x5040, 0x1000);
 				break;
 			case TEGRA3_PROJECT_P1801:
 				break;
@@ -989,6 +997,8 @@ static int rt5640_set_gain(struct snd_kcontrol *kcontrol,
 		DMIC_flag= true;
 		switch(project_info){
 			case TEGRA3_PROJECT_TF500T:
+				tps6591x_set_reg_enable_record();
+				asuspec_audio_recording(true);
 				if(!spk_out_flag){
 					snd_soc_write(codec, RT5640_DRC_AGC_1,0xE0A0);
 					snd_soc_write(codec, RT5640_DRC_AGC_2,0x0009);
@@ -999,6 +1009,8 @@ static int rt5640_set_gain(struct snd_kcontrol *kcontrol,
 				snd_soc_update_bits(codec, RT5640_ADC_DIG_VOL,
 					RT5640_ADC_L_VOL_MASK | RT5640_ADC_R_VOL_MASK,
 					0x7272);
+				snd_soc_update_bits(codec, RT5640_STO_ADC_MIXER,
+					0x5040, 0x5040);
 				break;
 			case TEGRA3_PROJECT_P1801:
 				snd_soc_update_bits(codec, RT5640_IN3_IN4,RT5640_BST_MASK2,
@@ -1586,8 +1598,8 @@ static int rt5640_spk_event(struct snd_soc_dapm_widget *w,
 		spk_out_flag = true;
 		switch(project_info){
 			case TEGRA3_PROJECT_TF500T:
-				snd_soc_write(codec, RT5640_DRC_AGC_1,0x6202);
-				snd_soc_write(codec, RT5640_DRC_AGC_2,0x1f02);
+				snd_soc_write(codec, RT5640_DRC_AGC_1,0x6206);
+				snd_soc_write(codec, RT5640_DRC_AGC_2,0x2102);
 				snd_soc_write(codec, RT5640_DRC_AGC_3,0x0000);
 				rt5640_update_eqmode(codec,TF500T);
 				break;
@@ -1609,8 +1621,9 @@ static int rt5640_spk_event(struct snd_soc_dapm_widget *w,
 		switch(project_info){
 			case TEGRA3_PROJECT_TF500T:
 				if(!spk_out_flag && !isRecording){
-				snd_soc_write(codec, RT5640_DRC_AGC_1,0x2202);
-				snd_soc_write(codec, RT5640_DRC_AGC_2,0x1f00);
+				//Disable ALC
+					snd_soc_write(codec, RT5640_DRC_AGC_1,0x2202);
+					snd_soc_write(codec, RT5640_DRC_AGC_2,0x1f00);
 					snd_soc_write(codec, RT5640_DRC_AGC_3,0x0000);
 				}else if(!spk_out_flag && DMIC_flag ){
 					snd_soc_write(codec, RT5640_DRC_AGC_1,0xE0A0);
@@ -1666,7 +1679,7 @@ static void rt5640_pmu_depop(struct snd_soc_codec *codec)
 		RT5640_PWR_HP_R | RT5640_PWR_HA,
 		RT5640_PWR_FV1 | RT5640_PWR_FV2 | RT5640_PWR_HP_L |
 		RT5640_PWR_HP_R | RT5640_PWR_HA);
-	rt5640_index_write(codec, RT5640_CHOP_DAC_ADC, 0x2600);
+	rt5640_index_update_bits(codec, RT5640_CHOP_DAC_ADC, 0x0200, 0x0200);
 	snd_soc_update_bits(codec, RT5640_DEPOP_M1,
 		RT5640_HP_CO_MASK | RT5640_HP_SG_MASK,
 		RT5640_HP_CO_EN | RT5640_HP_SG_EN);
@@ -1736,10 +1749,15 @@ static int rt5640_hp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_codec *codec = w->codec;
+	unsigned int val;
 
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
+		val = snd_soc_read(codec,0xb1);
+		snd_soc_update_bits(codec,0xb1,0x007f,0x0000);
 		rt5640_pmu_depop(codec);
+		snd_soc_write(codec,0xb1,val);
+		snd_soc_write(codec,0xb0,0x6000);
 		break;
 
 	case SND_SOC_DAPM_PRE_PMD:
@@ -3292,71 +3310,41 @@ static int rt56xx_hwdep_ioctl(struct snd_hwdep *hw, struct file *file, unsigned 
 			case INPUT_SOURCE_VR:
 				printk("AUDIO_CODEC: Capture mode [%s]\n",
 				arg == INPUT_SOURCE_NORMAL ? "NORMAL" : "VR");
-				if(isRecording != true && project_info == TEGRA3_PROJECT_TF500T){
-					tps6591x_set_reg_enable_record();
-					asuspec_audio_recording(true);
-					if(!spk_out_flag && DMIC_flag ){
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_1,
-							0xE0A0);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_2,
-							0x0009);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_3,
-							0x3044);
-					}
-				}
-				isRecording = true;
+
 				input_source=arg;
+#ifdef DSP_IOCONTROL_ENABLE
 				if(arg == INPUT_SOURCE_VR){
 					do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_AEC_NS_FENS);
 				}else{
 					do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_DIS);
 				}
+#endif
 				break;
 			case INPUT_SOURCE_AGC:
 			case INPUT_SOURCE_NO_AGC:
 				printk("AUDIO_CODEC: Capture mode [%s]\n",
 				arg == INPUT_SOURCE_AGC ? "AGC" : "NON-AGC");
-				if(isRecording != true && project_info == TEGRA3_PROJECT_TF500T){
-					tps6591x_set_reg_enable_record();
-					asuspec_audio_recording(true);
-					if(!spk_out_flag && DMIC_flag ){
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_1,
-							0xE0A0);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_2,
-							0x0009);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_3,
-							0x3044);
-					}
-				}
-				isRecording = true;
+
 				input_agc = arg;
+#ifdef DSP_IOCONTROL_ENABLE
 				if(arg == INPUT_SOURCE_AGC){
 					do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_AEC_NS_FENS);
 				}else{
 					do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_DIS);
 				}
+#endif
 				break;
 			case OUTPUT_SOURCE_NORMAL:
 			case OUTPUT_SOURCE_VOICE:
                             printk("AUDIO_CODEC: Capture mode [%s]\n",
 				arg == OUTPUT_SOURCE_NORMAL ? "NORMAL" : "VOICE");
-				if(isRecording != true && project_info == TEGRA3_PROJECT_TF500T){
-					tps6591x_set_reg_enable_record();
-					asuspec_audio_recording(true);
-					if(!spk_out_flag && DMIC_flag ){
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_1,
-							0xE0A0);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_2,
-							0x0009);
-						snd_soc_write(rt5640_audio_codec, RT5640_DRC_AGC_3,
-							0x3044);
-					}
-				}
-				isRecording = true;
+
 				output_source=arg;
+#ifdef DSP_IOCONTROL_ENABLE
 				if(arg == OUTPUT_SOURCE_VOICE){
 					do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_AEC_NS_FENS);
 				}
+#endif
 				break;
 			case END_RECORDING:
 				isRecording = false;
@@ -3372,7 +3360,9 @@ static int rt56xx_hwdep_ioctl(struct snd_hwdep *hw, struct file *file, unsigned 
 							0x0000);
 					}
 				}
+#ifdef DSP_IOCONTROL_ENABLE
 				do_rt5640_dsp_set_mode(rt5640_audio_codec,RT5640_DSP_DIS);
+#endif
 				break;
 			case START_COMMUNICATION:
                             printk("AUDIO_CODEC: Capture mode [%s]\n",
@@ -3462,8 +3452,8 @@ static int rt5640_probe(struct snd_soc_codec *codec)
 		printk("gpio_direction_output failed for input %d\n", CODEC_SPKVDD_POWER_5V0_EN_GPIO);
 	}
 	printk("GPIO = %d , state = %d\n", CODEC_SPKVDD_POWER_5V0_EN_GPIO,
-			gpio_get_value(CODEC_SPKVDD_POWER_5V0_EN_GPIO));
-	gpio_set_value(CODEC_SPKVDD_POWER_5V0_EN_GPIO, 1);
+			gpio_get_value_cansleep(CODEC_SPKVDD_POWER_5V0_EN_GPIO));
+	gpio_set_value_cansleep(CODEC_SPKVDD_POWER_5V0_EN_GPIO, 1);
 
 
 	ret = snd_soc_codec_set_cache_io(codec, 8, 16, SND_SOC_I2C);

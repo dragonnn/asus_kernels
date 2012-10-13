@@ -288,7 +288,7 @@ static struct rt5631_init_reg init_list[] = {
 	{RT5631_OUTMIXER_R_CTRL		, 0xdfC0},
 	{RT5631_SPK_MIXER_CTRL		, 0xd8d8},
 	{RT5631_SPK_MONO_OUT_CTRL	, 0x6c00},
-	{RT5631_GEN_PUR_CTRL_REG	, 0x6e00}, //Speaker AMP ratio gain is 1.99X (5.99dB)
+	{RT5631_GEN_PUR_CTRL_REG	, 0x7e00}, //Speaker AMP ratio gain is 1.99X (5.99dB)
 	{RT5631_SPK_MONO_HP_OUT_CTRL	, 0x0000},
 	{RT5631_MIC_CTRL_1        	, 0x8000}, //change Mic1 to differential mode,mic2 to single end mode
 	{RT5631_INT_ST_IRQ_CTRL_2	, 0x0f18},
