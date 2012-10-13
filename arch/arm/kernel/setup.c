@@ -489,6 +489,25 @@ int __init arm_add_memory(phys_addr_t start, unsigned long size)
 }
 
 /*
+only for check CN or VF SKU
+for CN or VF sku, cn_vf_sku = 1
+others, cn_vf_sku=0
+*/
+
+unsigned int cn_vf_sku = 0;
+EXPORT_SYMBOL(cn_vf_sku);
+static int __init check_sku(char *p)
+{
+        if(!strcmp(p, "CN_VF"))
+            cn_vf_sku = 1;
+        else
+            cn_vf_sku = 0;
+
+        return 0;
+}
+early_param("SKU", check_sku);
+
+/*
  * In factory test mode, factory_mode is set as 2.
  * In normal mode, factory_mode remains 0.
  */

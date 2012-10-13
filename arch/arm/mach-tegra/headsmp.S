@@ -34,7 +34,11 @@
 
 #define DEBUG_CPU_RESET_HANDLER	0	/* Non-zero enables debug code */
 
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
 #define PMC_SCRATCH41		0x140
+#else
+#define PMC_SCRATCH49		0x244
+#endif
 
 #define RESET_DATA(x)		((TEGRA_RESET_##x)*4)
 
@@ -285,7 +289,11 @@ __is_not_lp2:
 __die:
 	sub	lr, lr, #4
 	mov32	r7, TEGRA_PMC_BASE
-	str	lr, [r7, #PMC_SCRATCH41]
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
+    str lr, [r7, #PMC_SCRATCH41]
+#else
+	str	lr, [r7, #PMC_SCRATCH49]
+#endif
 
 	mov32	r7, TEGRA_CLK_RESET_BASE
 
@@ -322,7 +330,7 @@ __die:
 	/* If the CPU didn't power gate above just kill it's clock. */
 
 	mov	r0, r11, lsl #8
-	str	r0, [r7, #348]			@ CLK_CPU_CMPLX_SET
+	str	r0, [r7, #0x348]		@ CLK_CPU_CMPLX_SET
 #endif
 	/* If the CPU still isn't dead, just spin here. */
 	b	.
@@ -335,6 +343,10 @@ __tegra_cpu_reset_handler_data:
 	.rept	TEGRA_RESET_DATA_SIZE
 	.long	0
 	.endr
-	.size	__tegra_cpu_reset_handler_data, . - __tegra_cpu_reset_handler_data
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
+    .size   __tegra_cpu_reset_handler_data, .-tegra_cpu_reset_handler_data
+#else
+	.size	__tegra_cpu_reset_handler_data, .-__tegra_cpu_reset_handler_data
+#endif
 	.align L1_CACHE_SHIFT
 ENTRY(__tegra_cpu_reset_handler_end)

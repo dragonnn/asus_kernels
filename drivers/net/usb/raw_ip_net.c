@@ -49,11 +49,15 @@ MODULE_LICENSE("GPL");
 int g_i;
 
 int max_intfs = MAX_INTFS;
-unsigned long usb_net_raw_ip_vid = 0x1519;
-unsigned long usb_net_raw_ip_pid = 0x0020;
+const unsigned long usb_net_raw_ip_vid = 0x1519;
+const unsigned long usb_net_raw_ip_pid = 0x0020;
 unsigned long usb_net_raw_ip_intf[MAX_INTFS] = { 0x03, 0x05, 0x07 };
 unsigned long usb_net_raw_ip_rx_debug;
 unsigned long usb_net_raw_ip_tx_debug;
+
+#ifdef CONFIG_DEBUG_ASUS
+int log_on;
+#endif
 
 module_param(max_intfs, int, 0644);
 MODULE_PARM_DESC(max_intfs, "usb net (raw-ip) - max. interfaces supported");
@@ -114,10 +118,61 @@ static int usb_net_raw_ip_tx_urb_submit(struct baseband_usb *usb,
 static void usb_net_raw_ip_tx_urb_work(struct work_struct *work);
 static void usb_net_raw_ip_tx_urb_comp(struct urb *urb);
 
+#ifdef CONFIG_DEBUG_ASUS
+static ssize_t show_log_onoff(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	if (log_on)
+		return sprintf(buf, "%s\n", "on");
+	else
+		return sprintf(buf, "%s\n", "off");
+}
+
+static ssize_t store_log_onoff(struct kobject *kobj, struct kobj_attribute *attr,
+		const char *buf, size_t count)
+{
+	if (count > 0) {
+		if (strncmp(buf, "on", strlen("on")) == 0)
+			log_on = 1;
+		else if (strncmp(buf, "off", strlen("off")) == 0)
+			log_on = 0;
+		else
+			return -EINVAL;
+	}
+
+	pr_info("%s raw_ip_net log_on: %d\n", __func__, log_on);
+	return count;
+}
+
+static struct kobj_attribute log_onoff_attribute =
+	__ATTR(log_onoff, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP,
+	show_log_onoff, store_log_onoff);
+
+static struct attribute *attrs[] = {
+	&log_onoff_attribute.attr,
+	NULL,	/* need to NULL terminate the list of attributes */
+};
+
+static struct attribute_group attr_group = {
+	.attrs = attrs,
+};
+
+static struct kobject *log_onoff_kobj;
+#endif
+
 static int baseband_usb_driver_probe(struct usb_interface *intf,
 	const struct usb_device_id *id)
 {
 	int i = g_i;
+	struct usb_device *usb_dev = interface_to_usbdev(intf);
+
+	if (usb_dev->descriptor.idVendor == usb_net_raw_ip_vid &&
+			usb_dev->descriptor.idProduct == usb_net_raw_ip_pid) {
+		if (usb_dev->actconfig->desc.bNumInterfaces == 5) {
+			// XMM 6260 core dump state, leave it to cdc-acm
+			return -ENODEV;
+		}
+	}
 
 	pr_debug("%s(%d) { intf %p id %p\n", __func__, __LINE__, intf, id);
 
@@ -648,6 +703,7 @@ static int usb_net_raw_ip_rx_urb_submit(struct baseband_usb *usb)
 	}
 	if (!usb->urb_r || !usb->buff) {
 		pr_err("no reusable rx urb found\n");
+		usb->stats.rx_dropped++;
 		return -ENOMEM;
 	}
 
@@ -667,6 +723,7 @@ static int usb_net_raw_ip_rx_urb_submit(struct baseband_usb *usb)
 	if (err < 0) {
 		pr_err("usb_submit_urb() failed - err %d\n", err);
 		usb->usb.rx_urb = (struct urb *) 0;
+		usb->stats.rx_errors++;
 		return err;
 	}
 
@@ -720,6 +777,11 @@ static void usb_net_raw_ip_rx_urb_comp(struct urb *urb)
 		break;
 	}
 
+#ifdef CONFIG_DEBUG_ASUS
+	if (log_on)
+		printk("<= %d\n", urb->actual_length);
+#endif
+
 	/* put rx urb data in rx buffer */
 	if (urb->actual_length > 0) {
 		pr_debug("usb_net_raw_ip_rx_urb_comp - "
@@ -764,6 +826,7 @@ static void usb_net_raw_ip_rx_urb_comp(struct urb *urb)
 		} else {
 			pr_err("usb_net_raw_ip_rx_urb_comp_work - "
 				"netdev_alloc_skb() failed\n");
+			usb->stats.rx_dropped++;
 		}
 	}
 
@@ -776,6 +839,7 @@ static void usb_net_raw_ip_rx_urb_comp(struct urb *urb)
 
 	/* submit next rx urb */
 	usb_net_raw_ip_rx_urb_submit(usb);
+	pr_debug("usb_net_raw_ip_rx_urb_comp }\n");
 	return;
 
 err_exit:
@@ -783,6 +847,7 @@ err_exit:
 	usb->usb.rx_urb = (struct urb *) 0;
 
 	pr_debug("usb_net_raw_ip_rx_urb_comp }\n");
+	usb->stats.rx_dropped++;
 	return;
 }
 
@@ -862,6 +927,7 @@ static int usb_net_raw_ip_tx_urb_submit(struct baseband_usb *usb,
 	if (!skb) {
 		pr_err("%s: !skb\n", __func__);
 		usb_autopm_put_interface_async(usb->usb.interface);
+		usb->stats.tx_dropped++;
 		return -EINVAL;
 	}
 
@@ -870,6 +936,7 @@ static int usb_net_raw_ip_tx_urb_submit(struct baseband_usb *usb,
 	if (!urb) {
 		pr_err("usb_alloc_urb() failed\n");
 		usb_autopm_put_interface_async(usb->usb.interface);
+		usb->stats.tx_dropped++;
 		return -ENOMEM;
 	}
 	buf = kzalloc(skb->len - 14, GFP_ATOMIC);
@@ -877,6 +944,7 @@ static int usb_net_raw_ip_tx_urb_submit(struct baseband_usb *usb,
 		pr_err("usb buffer kzalloc() failed\n");
 		usb_free_urb(urb);
 		usb_autopm_put_interface_async(usb->usb.interface);
+		usb->stats.tx_dropped++;
 		return -ENOMEM;
 	}
 	err = skb_copy_bits(skb, 14, buf, skb->len - 14);
@@ -885,6 +953,7 @@ static int usb_net_raw_ip_tx_urb_submit(struct baseband_usb *usb,
 		kfree(buf);
 		usb_free_urb(urb);
 		usb_autopm_put_interface_async(usb->usb.interface);
+		usb->stats.tx_errors++;
 		return err;
 	}
 	usb_fill_bulk_urb(urb, usb->usb.device, usb->usb.pipe.bulk.out,
@@ -988,6 +1057,16 @@ static void usb_net_raw_ip_tx_urb_comp(struct urb *urb)
 
 	pr_debug("usb_net_raw_ip_tx_urb_comp {\n");
 
+	if (urb->status == 0) {
+#ifdef CONFIG_DEBUG_ASUS
+		if (log_on)
+			printk("=> %d\n", urb->actual_length);
+#endif
+	} else {
+		pr_info("usb_net_raw_ip_tx_urb_comp tx error: %d\n",
+					urb->status);
+	}
+
 	/* check input */
 	if (!urb) {
 		pr_err("no urb\n");
@@ -1004,6 +1083,7 @@ static void usb_net_raw_ip_tx_urb_comp(struct urb *urb)
 	case -EPROTO:
 		pr_info("%s: tx urb %p - link shutdown %d\n",
 			__func__, urb, urb->status);
+		usb->stats.tx_dropped++;
 		usb_autopm_put_interface_async(usb->usb.interface);
 		goto err_exit;
 	default:
@@ -1100,6 +1180,21 @@ static int usb_net_raw_ip_init(void)
 			usb_net_raw_ip_tx_urb_work);
 	}
 
+#ifdef CONFIG_DEBUG_ASUS
+	/* create kobject located in /sys/raw_ip_net/log_onoff */
+	log_onoff_kobj = kobject_create_and_add("raw_ip_net", NULL);
+	if (!log_onoff_kobj) {
+		err = -ENOMEM;
+		goto error_exit;
+	}
+
+	err = sysfs_create_group(log_onoff_kobj, &attr_group);
+	if (err) {
+		kobject_put(log_onoff_kobj);
+		goto error_exit;
+	}
+#endif
+
 	pr_debug("usb_net_raw_ip_init }\n");
 	return 0;
 
@@ -1182,6 +1277,12 @@ static void usb_net_raw_ip_exit(void)
 			baseband_usb_net[i] = (struct baseband_usb *) 0;
 		}
 	}
+
+#ifdef CONFIG_DEBUG_ASUS
+	/* delete kobject group and file */
+	sysfs_remove_group(log_onoff_kobj, &attr_group);
+	kobject_put(log_onoff_kobj);
+#endif
 
 	pr_debug("usb_net_raw_ip_exit }\n");
 }

@@ -1172,6 +1172,7 @@ static struct tegra_usb_platform_data tegra_ehci2_hsic_xmm_pdata = {
 		.power_off_on_suspend = false,
 	},
 	.u_cfg.hsic = {
+		.enable_gpio = EN_HSIC_GPIO,
 		.sync_start_delay = 9,
 		.idle_wait_delay = 17,
 		.term_range_adj = 0,
@@ -1375,24 +1376,27 @@ static struct tegra_usb_otg_data tegra_otg_pdata = {
 };
 #endif
 
-struct platform_device *tegra_usb3_utmip_host_register(void)
+struct platform_device *cardhu_tegra_usb_hsic_host_register(void)
 {
 	struct platform_device *pdev;
-	void *platform_data;
 	int val;
 
-	pdev = platform_device_alloc(tegra_ehci3_device.name, tegra_ehci3_device.id);
+	pdev = platform_device_alloc(tegra_ehci2_device.name,
+		tegra_ehci2_device.id);
 	if (!pdev)
 		return NULL;
 
-	val = platform_device_add_resources(pdev, tegra_ehci3_device.resource, tegra_ehci3_device.num_resources);
+	val = platform_device_add_resources(pdev, tegra_ehci2_device.resource,
+		tegra_ehci2_device.num_resources);
 	if (val)
 		goto error;
 
-	pdev->dev.dma_mask =  tegra_ehci3_device.dev.dma_mask;
-	pdev->dev.coherent_dma_mask = tegra_ehci3_device.dev.coherent_dma_mask;
+	pdev->dev.dma_mask =  tegra_ehci2_device.dev.dma_mask;
+	pdev->dev.coherent_dma_mask = tegra_ehci2_device.dev.coherent_dma_mask;
 
-	val = platform_device_add_data(pdev, &tegra_ehci3_utmi_pdata, sizeof(struct tegra_usb_platform_data));
+	val = platform_device_add_data(pdev, &tegra_ehci2_hsic_xmm_pdata,
+			sizeof(struct tegra_usb_platform_data));
+
 	if (val)
 		goto error;
 
@@ -1408,9 +1412,88 @@ error:
 	return NULL;
 }
 
-void tegra_usb3_utmip_host_unregister(struct platform_device *pdev)
+void cardhu_tegra_usb_hsic_host_unregister(struct platform_device *pdev)
 {
 	platform_device_unregister(pdev);
+}
+
+struct platform_device *cardhu_tegra_usb_utmip_host_register(void)
+{
+	struct platform_device *pdev;
+	int val;
+
+	pdev = platform_device_alloc(tegra_ehci2_device.name,
+		tegra_ehci2_device.id);
+	if (!pdev)
+		return NULL;
+
+	val = platform_device_add_resources(pdev, tegra_ehci2_device.resource,
+		tegra_ehci2_device.num_resources);
+	if (val)
+		goto error;
+
+	pdev->dev.dma_mask =  tegra_ehci2_device.dev.dma_mask;
+	pdev->dev.coherent_dma_mask = tegra_ehci2_device.dev.coherent_dma_mask;
+
+	val = platform_device_add_data(pdev, &tegra_ehci2_utmi_pdata,
+			sizeof(struct tegra_usb_platform_data));
+	if (val)
+		goto error;
+
+	val = platform_device_add(pdev);
+	if (val)
+		goto error;
+
+	return pdev;
+
+error:
+	pr_err("%s: failed to add the host contoller device\n", __func__);
+	platform_device_put(pdev);
+	return NULL;
+}
+
+void cardhu_tegra_usb_utmip_host_unregister(struct platform_device *pdev)
+{
+	platform_device_unregister(pdev);
+}
+
+struct platform_device *tegra_usb3_utmip_host_register(void)
+{
+    struct platform_device *pdev;
+    void *platform_data;
+    int val;
+
+    pdev = platform_device_alloc(tegra_ehci3_device.name, tegra_ehci3_device.id);
+    if (!pdev)
+        return NULL;
+
+    val = platform_device_add_resources(pdev, tegra_ehci3_device.resource, tegra_ehci3_device.num_resources);
+    if (val)
+        goto error;
+
+    pdev->dev.dma_mask =  tegra_ehci3_device.dev.dma_mask;
+    pdev->dev.coherent_dma_mask = tegra_ehci3_device.dev.coherent_dma_mask;
+
+    val = platform_device_add_data(pdev, &tegra_ehci3_utmi_pdata, sizeof(struct tegra_usb_platform_data));
+
+    if (val)
+        goto error;
+
+    val = platform_device_add(pdev);
+    if (val)
+        goto error;
+
+    return pdev;
+
+error:
+    pr_err("%s: failed to add the host contoller device\n", __func__);
+    platform_device_put(pdev);
+    return NULL;
+}
+
+void tegra_usb3_utmip_host_unregister(struct platform_device *pdev)
+{
+    platform_device_unregister(pdev);
 }
 
 #if defined(CONFIG_USB_SUPPORT)
@@ -1452,7 +1535,17 @@ static void cardhu_usb_init(void)
 			tegra_ehci2_utmi_pdata.u_data.host.hot_plug = true;
 			tegra_ehci2_device.dev.platform_data = &tegra_ehci2_utmi_pdata;
 			platform_device_register(&tegra_ehci2_device);
+		}else if (project_info == TEGRA3_PROJECT_TF300TG) {
+			printk("[TF300TG] register tegra_ehci2_device\n");
+			tegra_ehci2_utmi_pdata.u_data.host.power_off_on_suspend = false;
+			tegra_ehci2_device.dev.platform_data =
+					 &tegra_ehci2_hsic_xmm_pdata;
+                /* ehci2 registration happens in baseband-xmm-power  */
 		}
+		/*
+		tegra_ehci2_device.dev.platform_data = &tegra_ehci2_utmi_pdata;
+		platform_device_register(&tegra_ehci2_device);
+		*/
 	}
 
 	tegra_ehci3_device.dev.platform_data = &tegra_ehci3_utmi_pdata;
@@ -1494,6 +1587,12 @@ static struct baseband_power_platform_data tegra_baseband_power_data = {
 	.xmm = {
 			.bb_rst = XMM_GPIO_BB_RST,
 			.bb_on = XMM_GPIO_BB_ON,
+			.bb_vbat = BB_GPIO_VBAT_ON,
+			.bb_rst_ind = BB_GPIO_RESET_IND,
+			.bb_vbus = BB_GPIO_VBUS_ON,
+			.bb_sw_sel = BB_GPIO_SW_SEL,
+			.bb_sim_cd = BB_GPIO_SIM_DET,
+			.bb_sar_det = BB_GPIO_SAR_DET,
 			.ipc_bb_wake = XMM_GPIO_IPC_BB_WAKE,
 			.ipc_ap_wake = XMM_GPIO_IPC_AP_WAKE,
 			.ipc_hsic_active = XMM_GPIO_IPC_HSIC_ACTIVE,
@@ -1605,6 +1704,43 @@ static void cardhu_modem_init(void)
 		platform_device_register(&tegra_baseband_power_device);
 		platform_device_register(&tegra_baseband_power2_device);
 		break;
+	case BOARD_PM269:
+		printk("BOARD_PM269");
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_rst);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_on);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_vbat);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_rst_ind);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_vbus);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sw_sel);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sim_cd);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.bb_sar_det);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_bb_wake);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_ap_wake);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_hsic_active);
+		tegra_gpio_enable(
+			tegra_baseband_power_data.modem.xmm.ipc_hsic_sus_req);
+		tegra_baseband_power_data.hsic_register =
+		&cardhu_tegra_usb_hsic_host_register;
+		tegra_baseband_power_data.hsic_unregister =
+			&cardhu_tegra_usb_hsic_host_unregister;
+		tegra_baseband_power_data.utmip_register =
+		&cardhu_tegra_usb_utmip_host_register;
+		tegra_baseband_power_data.utmip_unregister =
+			&cardhu_tegra_usb_utmip_host_unregister;
+		platform_device_register(&tegra_baseband_power_device);
+		platform_device_register(&tegra_baseband_power2_device);
+
 	default:
 		break;
 	}

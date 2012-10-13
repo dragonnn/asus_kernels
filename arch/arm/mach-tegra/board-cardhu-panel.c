@@ -148,6 +148,7 @@ static p_tegra_dc_bl_output bl_output = cardhu_bl_output_measured;
 static bool is_panel_218;
 static bool is_panel_219;
 static bool is_panel_1506;
+extern int cn_vf_sku;
 
 static bool is_dsi_panel(void)
 {
@@ -1459,7 +1460,7 @@ static void cardhu_panel_preinit(void)
 		is_panel_1506 = true;
 
 	if (!is_dsi_panel()) {
-		cardhu_disp1_out.parent_clk_backup = "pll_d2_out0";
+		cardhu_disp1_out.parent_clk_backup = "pll_d_out0";
 		cardhu_disp1_out.type = TEGRA_DC_OUT_RGB;
 		cardhu_disp1_out.depth = 18;
 		cardhu_disp1_out.dither = TEGRA_DC_ORDERED_DITHER;
@@ -1597,6 +1598,12 @@ int __init cardhu_panel_init(void)
 		gpio_direction_output(cardhu_lvds_shutdown, 1);
 	}
 */
+	if ( tegra3_get_project_id() == TEGRA3_PROJECT_TF300TG && cn_vf_sku){
+		cardhu_disp1_out.modes->pclk = 83900000;
+		cardhu_disp1_out.modes->v_front_porch = 200;
+		printk("TF300TG: Set LCD pclk as %d Hz, cn_vf_sku=%d\n", cardhu_disp1_out.modes->pclk, cn_vf_sku);
+	}
+
 	if ( tegra3_get_project_id() == TEGRA3_PROJECT_P1801 ){
 		printk("P1801 display setting, set HDMI as main display\n ");
 		cardhu_fb_data.xres = 1920;

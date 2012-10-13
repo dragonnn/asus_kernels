@@ -129,7 +129,7 @@
 #define PMU_TCA6416_GPIO_END	(PMU_TCA6416_GPIO_BASE + 16)
 
 /* PMU_TCA6416 GPIO assignment */
-#define EN_HSIC_GPIO				PMU_TCA6416_GPIO_PORT11 /* PMU_GPIO25 */
+#define EN_HSIC_GPIO				TEGRA_GPIO_PR7  /* PMU_GPIO25 */
 #define PM267_SMSC4640_HSIC_HUB_RESET_GPIO	PMU_TCA6416_GPIO_PORT17 /* PMU_GPIO31 */
 
 /* CAM_TCA6416 GPIOs */
@@ -237,6 +237,8 @@ int cardhu_pm298_gpio_switch_regulator_init(void);
 int cardhu_pm298_regulator_init(void);
 int cardhu_pm299_gpio_switch_regulator_init(void);
 int cardhu_pm299_regulator_init(void);
+struct platform_device *cardhu_tegra_usb_utmip_host_register(void);
+void cardhu_tegra_usb_utmip_host_unregister(struct platform_device *pdev);
 struct platform_device *tegra_usb3_utmip_host_register(void);
 void tegra_usb3_utmip_host_unregister(struct platform_device *pdev);
 
@@ -294,12 +296,19 @@ void tegra_usb3_utmip_host_unregister(struct platform_device *pdev);
 #define P1801_ACCEL_ORIENTATION		{ 0, -1, 0, -1, 0, 0, 0, 0, -1 }
 
 /* Baseband GPIO addresses */
-#define BB_GPIO_BB_EN			TEGRA_GPIO_PR5
+/*#define BB_GPIO_BB_EN			TEGRA_GPIO_PR5
 #define BB_GPIO_BB_RST			TEGRA_GPIO_PS4
 #define BB_GPIO_SPI_INT			TEGRA_GPIO_PS6
 #define BB_GPIO_SPI_SS			TEGRA_GPIO_PV0
 #define BB_GPIO_AWR			TEGRA_GPIO_PS7
 #define BB_GPIO_CWR			TEGRA_GPIO_PU5
+*/
+#define BB_GPIO_BB_EN			TEGRA_GPIO_PX7 //MODEM_ON
+#define BB_GPIO_BB_RST			TEGRA_GPIO_PU3 //MOD_nRST_PWRDWN
+#define BB_GPIO_SPI_INT			TEGRA_GPIO_PX0 //AP_Active
+#define BB_GPIO_SPI_SS			TEGRA_GPIO_PY3 //MOD_suspend_req
+#define BB_GPIO_AWR				TEGRA_GPIO_PY2 //AP_WAKE_MOD
+#define BB_GPIO_CWR				TEGRA_GPIO_PU5 //MOD_WAKE_AP
 
 #define XMM_GPIO_BB_ON			BB_GPIO_BB_EN
 #define XMM_GPIO_BB_RST			BB_GPIO_BB_RST
@@ -307,6 +316,15 @@ void tegra_usb3_utmip_host_unregister(struct platform_device *pdev);
 #define XMM_GPIO_IPC_HSIC_SUS_REQ	BB_GPIO_SPI_SS
 #define XMM_GPIO_IPC_BB_WAKE		BB_GPIO_AWR
 #define XMM_GPIO_IPC_AP_WAKE		BB_GPIO_CWR
+
+/* Asus baseband GPIO addresses */
+#define BB_GPIO_VBAT_ON			TEGRA_GPIO_PC6  //MOD_VBAT_ON
+#define BB_GPIO_VBUS_ON			TEGRA_GPIO_PD2  //MOD_VBUS_ON
+#define BB_GPIO_SW_SEL			TEGRA_GPIO_PP1  //USB_SW_SEL
+#define BB_GPIO_RESET_IND		TEGRA_GPIO_PEE1 //n_MOD_RST_IND
+#define BB_GPIO_SAR_DET			TEGRA_GPIO_PR3  //SAR_DET#_3G
+#define BB_GPIO_SIM_DET			TEGRA_GPIO_PW3  //n_SIM_CD
+
 
 #define TDIODE_OFFSET	(10000)	/* in millicelsius */
 

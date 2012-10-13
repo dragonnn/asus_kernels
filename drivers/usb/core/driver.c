@@ -1300,6 +1300,10 @@ static void choose_wakeup(struct usb_device *udev, pm_message_t msg)
 	 */
 	w = device_may_wakeup(&udev->dev);
 
+	/* Asus: do not check remote wakeup setting for IMC XMM6260,
+	 * remote wakeup is always allowed for this project.
+	 */
+
 	/* If the device is autosuspended with the wrong wakeup setting,
 	 * autoresume now so the setting can be changed.
 	 */
@@ -1654,10 +1658,14 @@ static int autosuspend_check(struct usb_device *udev)
 		if (!(udev->descriptor.idVendor == 0x05c6 &&
 			(udev->descriptor.idProduct == 0x900b ||
 			udev->descriptor.idProduct == 0x900d))) {
-			dev_dbg(&udev->dev, "remote wakeup needed for autosuspend\n");
+			dev_dbg(&udev->dev,
+				"remote wakeup needed for autosuspend\n");
 			return -EOPNOTSUPP;
-		} else { //bypass checking for QCOM9200 modem
-			dev_dbg(&udev->dev, "this is QCOM9200, do not check for remote wakeup\n");
+		} else {
+			// bypass checking for IMC XMM6260 and Qualcomm
+			// QCOM9200 modems
+			dev_dbg(&udev->dev, "this is QCOM9200, "
+					"do not check for remote wakeup\n");
 		}
 	}
 	udev->do_remote_wakeup = w;
