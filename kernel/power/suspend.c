@@ -28,6 +28,9 @@
 #include "power.h"
 
 const char *const pm_states[PM_SUSPEND_MAX] = {
+#ifdef CONFIG_EARLYSUSPEND
+	[PM_SUSPEND_ON]		= "on",
+#endif
 	[PM_SUSPEND_STANDBY]	= "standby",
 	[PM_SUSPEND_MEM]	= "mem",
 };
@@ -101,7 +104,18 @@ static int suspend_prepare(void)
 	if (error)
 		goto Finish;
 
+	/* Add a workaround to reset the system (causing a reboot) after
+	 * timeout occurs. We met suspect system hang in try_to_freeze_tasks()
+	 * without return even in successful case (When this issue occurs, dmesg
+	 * looks like "Freezing user space processes ... (elapsed 0.02 seconds)"
+	 * without proper "done" in the tail, or "Freezing remaining freezable
+	 * tasks ... (elapsed 0.01 seconds) without proper "done" either.
+	 *
+	 * FIXME: Figure out the root cause of this system hang.
+	 */
+	freezer_expire_start();
 	error = suspend_freeze_processes();
+	freezer_expire_finish("freeze processes");
 	if (!error)
 		return 0;
 
@@ -165,9 +179,22 @@ static int suspend_enter(suspend_state_t state)
 
 	error = sysdev_suspend(PMSG_SUSPEND);
 	if (!error) {
+		/*
+		 * enable HW watchdog with 5s timeout, and the checkpoint
+		 * must be disabled in tegra_suspend_dram() under
+		 * /kernel/arch/arm/mach-tegra/pm.c before entering suspend mode.
+		 */
+		dram_expire_start();
+		pr_info("Suspending is subject to 5 seconds\n");
 		error = syscore_suspend();
-		if (error)
+		if (error) {
+			/*
+			 * disable HW watchdog due to failure of
+			 * the last suspending attempt.
+			 */
+			dram_expire_finish();
 			sysdev_resume();
+		}
 	}
 	if (!error) {
 		if (!(suspend_test(TEST_CORE) || pm_wakeup_pending())) {
@@ -175,6 +202,12 @@ static int suspend_enter(suspend_state_t state)
 			events_check_enabled = false;
 		}
 		syscore_resume();
+		/*
+		 * disable HW watchdog, and the checkpoint must be actived in
+		 * tegra_suspend_dram() under /kernel/arch/arm/mach-tegra/pm.c
+		 * after levaing suspend mode.
+		 */
+		dram_expire_finish();
 		sysdev_resume();
 	}
 
@@ -217,11 +250,13 @@ int suspend_devices_and_enter(suspend_state_t state)
 	}
 	suspend_console();
 	suspend_test_start();
+	suspend_expire_start();
 	error = dpm_suspend_start(PMSG_SUSPEND);
 	if (error) {
 		printk(KERN_ERR "PM: Some devices failed to suspend\n");
 		goto Recover_platform;
 	}
+	suspend_expire_finish("suspend devices");
 	suspend_test_finish("suspend devices");
 	if (suspend_test(TEST_DEVICES))
 		goto Recover_platform;
@@ -230,7 +265,9 @@ int suspend_devices_and_enter(suspend_state_t state)
 
  Resume_devices:
 	suspend_test_start();
+	suspend_expire_start();
 	dpm_resume_end(PMSG_RESUME);
+	suspend_expire_finish("resume devices");
 	suspend_test_finish("resume devices");
 	resume_console();
  Close:
