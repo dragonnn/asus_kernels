@@ -1648,8 +1648,14 @@ static int autosuspend_check(struct usb_device *udev)
 		}
 	}
 	if (w && !device_can_wakeup(&udev->dev)) {
-		dev_dbg(&udev->dev, "remote wakeup needed for autosuspend\n");
-		return -EOPNOTSUPP;
+		if (!(udev->descriptor.idVendor == 0x05c6 &&
+			(udev->descriptor.idProduct == 0x900b ||
+			udev->descriptor.idProduct == 0x900d))) {
+			dev_dbg(&udev->dev, "remote wakeup needed for autosuspend\n");
+			return -EOPNOTSUPP;
+		} else { //bypass checking for QCOM9200 modem
+			dev_dbg(&udev->dev, "this is QCOM9200, do not check for remote wakeup\n");
+		}
 	}
 	udev->do_remote_wakeup = w;
 	return 0;
