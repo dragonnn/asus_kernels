@@ -1,0 +1,6 @@
+
+service initd /system/xbin/busybox run-parts /system/etc/init.d/
+    class main
+    user root
+    group root
+    oneshot
