@@ -14,6 +14,7 @@ fi
 
 # wait for system to mount
 while [ ! -d /system/app ] ; do
+	echo data2sd wait loop > /dev/null
 done
 
 # check for busybox
@@ -33,7 +34,8 @@ for PARTITION in $DEVPATH$DATA2SD* ; do
 		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA2SD /data
 		$BUSYBOX mkdir /data/media/internal_sd
 		$BUSYBOX mount -o bind /internal_sd/media /data/media/internal_sd
+		exit 0
 	fi
 done
 
-exit 0
+exit 1
