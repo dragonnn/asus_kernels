@@ -1,6 +1,7 @@
 #!/bin/bash
 
 rm ../update.zip
+find -name .gitignore | xargs rm
 cd ./init_rd
 ../ramdiskrepack
 cd ../
