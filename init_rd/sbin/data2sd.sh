@@ -6,6 +6,8 @@ DATA=mmcblk0p8
 BUSYBOX=/system/xbin/busybox
 MOUNTOPT=noauto_da_alloc,noatime,nosuid,nodev,nomblk_io_submit,errors=panic
 FSTYPE=ext4
+DATAMEDIA_MOUNTPOINT=/data/media/internal_sd
+DATA_MOUNTPOINT=/internal_sd
 
 # check for external sd card
 if [ ! -e $DEVPATH$DATA2SD ] ; then
@@ -27,13 +29,15 @@ for PARTITION in $DEVPATH$DATA2SD* ; do
 	DATA2SD=${PARTITION#$DEVPATH}
 	if $BUSYBOX dd if=$DEVPATH$DATA2SD skip=1144 bs=1 count=16 | $BUSYBOX grep data2sd ; then
 		$BUSYBOX mount -o rw,remount -t rootfs rootfs /
-		$BUSYBOX mkdir /internal_sd
+		$BUSYBOX mkdir $DATA_MOUNTPOINT
 		$BUSYBOX mount -o ro,remount -t rootfs rootfs /
-		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA /internal_sd
+		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA $DATA_MOUNTPOINT
 		$BUSYBOX umount -l /data
 		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA2SD /data
-		$BUSYBOX mkdir /data/media/internal_sd
-		$BUSYBOX mount -o bind /internal_sd/media /data/media/internal_sd
+		if [ ! -d $DATAMEDIA_MOUNTPOINT ] ; then
+			$BUSYBOX mkdir $DATAMEDIA_MOUNTPOINT
+		fi
+		$BUSYBOX mount -o bind $DATA_MOUNTPOINT/media $DATAMEDIA_MOUNTPOINT
 		exit 0
 	fi
 done
