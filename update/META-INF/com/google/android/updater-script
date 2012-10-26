@@ -2,6 +2,7 @@ assert(getprop("ro.product.device") == "tf300t" ||
 	   getprop("ro.product.device") == "tf300tl" ||
 	   getprop("ro.product.device") == "tf300tg");
 ui_print("copying files...");
+show_progress(0.500000, 0);
 run_program("/sbin/busybox", "mount", "/system");
 delete("/system/lib/modules/baseband_usb_chr.ko");
 delete("/system/lib/modules/bcm4329.ko");
@@ -15,6 +16,8 @@ delete("/system/bin/ntfs-3g");
 delete("/system/bin/exfat");
 delete("/system/etc/init.d/99zram");
 delete("/system/etc/install-recovery.sh");
+show_progress(0.200000, 0);
+show_progress(0.200000, 10);
 package_extract_dir("system", "/system");
 set_perm(0, 0, 0644, "/system/lib/modules/baseband_usb_chr.ko");
 set_perm(0, 0, 0644, "/system/lib/modules/bcm4329.ko");
@@ -27,8 +30,10 @@ set_perm(0, 2000, 0755, "/system/bin/vold");
 set_perm(0, 2000, 0755, "/system/bin/ntfs-3g");
 set_perm(0, 2000, 0755, "/system/bin/exfat");
 set_perm_recursive(0, 2000, 0755, 0755, "/system/etc/init.d");
+show_progress(0.200000, 10);
 run_program("/sbin/busybox", "umount", "/staging");
 package_extract_file("kernel.blob", "/tmp/kernel.blob");
 run_program("/sbin/busybox", "dd", "if=/tmp/kernel.blob", "of=/dev/block/mmcblk0p4");
 delete("/tmp/kernel.blob");
+show_progress(0.100000, 0);
 ui_print("done...");
