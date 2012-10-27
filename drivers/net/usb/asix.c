@@ -3709,6 +3709,10 @@ static const struct usb_device_id	products [] = {
 	USB_DEVICE (0x07d1, 0x3c05),
 	.driver_info =  (unsigned long) &dlink_dub_e100b_info,
 }, {
+	// DLink DUB-E100C
+	USB_DEVICE (0x2001, 0x1a02),
+	.driver_info =  (unsigned long) &dlink_dub_e100b_info,
+}, {
 	// Intellinet, ST Lab USB Ethernet
 	USB_DEVICE (0x0b95, 0x1720),
 	.driver_info =  (unsigned long) &ax8817x_info,
