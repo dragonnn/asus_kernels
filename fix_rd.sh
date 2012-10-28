@@ -21,6 +21,10 @@ if [ ! -d ./init_rd/system ] ; then
 	mkdir ./init_rd/system
 fi
 
+if [ ! -d ./CWM-touch/tmp ] ; then
+	mkdir ./CWM-touch/tmp
+fi
+
 # fix owner
 chown -R root:root ./init_rd/*
 chown -R root:root ./CWM-touch/*
@@ -45,5 +49,6 @@ chmod 750 -R ./init_rd/sbin
 chmod 750 -R ./CWM-touch/sbin
 chmod 755 ./init_rd/sys
 chmod 755 ./init_rd/system
+chmod 755 ./CWM-touch/tmp
 chmod 644 ./init_rd/ueventd*.rc
 chmod 644 ./CWM-touch/ueventd*.rc
