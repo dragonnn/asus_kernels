@@ -7,6 +7,7 @@ BUSYBOX=/sbin/busybox
 MOUNTOPT=noauto_da_alloc,noatime,nosuid,nodev,nomblk_io_submit,errors=panic
 FSTYPE=ext4
 DATA_MOUNTPOINT=/internal_sd
+DATAMEDIA_MOUNTPOINT=/data/media/internal_sd
 
 # check for external sd card
 if [ ! -e $DEVPATH$DATA2SD ] ; then
@@ -28,6 +29,10 @@ for PARTITION in $DEVPATH$DATA2SD* ; do
 		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA2SD /data
 		SED_ARGS=s/$DATA/$DATA2SD/
 		$BUSYBOX sed $SED_ARGS -i /etc/recovery.fstab
+		if [ ! -d $DATAMEDIA_MOUNTPOINT ] ; then
+			$BUSYBOX mkdir $DATAMEDIA_MOUNTPOINT
+		fi
+		$BUSYBOX mount -o bind $DATA_MOUNTPOINT/media $DATAMEDIA_MOUNTPOINT
 	fi
 	if $BUSYBOX dd if=$DEVPATH$DATA2SD skip=82 bs=1 count=8 | $BUSYBOX grep FAT32 ; then
 		$BUSYBOX echo /external_sd vfat $DEVPATH$DATA2SD >> /etc/recovery.fstab
