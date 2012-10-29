@@ -30,7 +30,7 @@ for PARTITION in $DEVPATH$DATA2SD* ; do
 		SED_ARGS=s/$DATA/$DATA2SD/
 		$BUSYBOX sed $SED_ARGS -i /etc/recovery.fstab
 		if [ ! -d $DATAMEDIA_MOUNTPOINT ] ; then
-			$BUSYBOX mkdir $DATAMEDIA_MOUNTPOINT
+			$BUSYBOX mkdir -p $DATAMEDIA_MOUNTPOINT
 		fi
 		$BUSYBOX mount -o bind $DATA_MOUNTPOINT/media $DATAMEDIA_MOUNTPOINT
 	fi

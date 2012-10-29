@@ -35,7 +35,7 @@ for PARTITION in $DEVPATH$DATA2SD* ; do
 		$BUSYBOX umount -l /data
 		$BUSYBOX mount -o $MOUNTOPT -t $FSTYPE $DEVPATH$DATA2SD /data
 		if [ ! -d $DATAMEDIA_MOUNTPOINT ] ; then
-			$BUSYBOX mkdir $DATAMEDIA_MOUNTPOINT
+			$BUSYBOX mkdir -p $DATAMEDIA_MOUNTPOINT
 		fi
 		$BUSYBOX mount -o bind $DATA_MOUNTPOINT/media $DATAMEDIA_MOUNTPOINT
 		exit 0
