@@ -1,10 +1,10 @@
 # init.mods.rc
 
 service initd /system/xbin/busybox run-parts /system/etc/init.d/
-    class main
-    user root
-    group root
-    oneshot
+	class main
+	user root
+	group root
+	oneshot
 
 service data2sd /system/bin/sh /sbin/data2sd.sh
 	user root
@@ -15,17 +15,17 @@ on property:init.svc.data2sd=stopped
 	trigger post-fs-data
 	load_persist_props
 
-on post-fs
+on early-boot
 	start data2sd
 
 on post-fs-data
-# copied from init.cardhu.rc "on boot"
-# GPS
-    mkdir /data/gps
-    chown system system /data/gps
-    chmod 770 /data/gps
-# Wiimote connect status
-    write /data/misc/wminput/connected 0
-    chmod 0666 /data/misc/wminput/connected 
-# ril
-    mkdir /data/modem 0770 radio system
+	# copied from init.cardhu.rc "on boot"
+	# GPS
+	mkdir /data/gps
+	chown system system /data/gps
+	chmod 770 /data/gps
+	# Wiimote connect status
+	write /data/misc/wminput/connected 0
+	chmod 0666 /data/misc/wminput/connected 
+	# ril
+	mkdir /data/modem 0770 radio system
