@@ -5,10 +5,8 @@ if [ ! -e ./zImage ] ; then
 	exit 1
 fi
 if [ ! -d ./system ] ; then
-	if [ ! -d ./update/system ] ; then
-		echo system not found
-		exit 1
-	fi
+	echo system not found
+	exit 1
 fi
 if [ -e ../cm_update.zip ] ; then
 	rm ../cm_update.zip
@@ -26,24 +24,20 @@ if [ -e ./update/kernel.blob ] ; then
 fi
 cat ./bin/blob_head ./tmp.blob > ./update/kernel.blob
 if [ -d "./system" ] ; then
-	rm -fr ./update/system
-	mkdir -p ./system/bin/
-	mkdir -p ./system/xbin/
-	mkdir -p ./system/etc/init.d/
-	cp ./files/busybox	./system/xbin/busybox
-	cp ./files/install_busybox.sh ./system/xbin/install_busybox.sh
-	cp ./files/vold		./system/bin/vold
-	cp ./files/ntfs-3g	./system/bin/ntfs-3g
-	cp ./files/exfat	./system/bin/exfat
-	cp ./files/zram.sh	./system/etc/init.d/99zram
-	mv ./system			./update/
+	rm -fr ./cm_update/system
+	mkdir -p ./cm_update/system
+	cp -frp ./system/*	./cm_update/system/
+	mkdir -p ./cm_update/system/bin/
+	cp ./files/vold		./cm_update/system/bin/vold
+	cp ./files/ntfs-3g	./cm_update/system/bin/ntfs-3g
+	cp ./files/exfat	./cm_update/system/bin/exfat
 fi
 rm ./tmp ./tmp.blob
-cd ./update
-zip -9r ../update.zip ./*
+cd ./cm_update
+zip -9r ../cm_update.zip ./*
 cd ../
-java -jar ./bin/SignUpdate.jar ./update.zip
-mv ./signed_update.zip ../cm_update.zip
-rm ./update.zip
+java -jar ./bin/SignUpdate.jar ./cm_update.zip
+mv ./signed_cm_update.zip ../cm_update.zip
+rm ./cm_update.zip
 cd ../
 exit 0

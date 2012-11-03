@@ -36,19 +36,39 @@ on fs
     mount tmpfs tmpfs /Removable mode=0755,gid=1000
 
 on post-fs-data
-    mkdir /data/misc/wifi 0770 wifi wifi
-    mkdir /data/misc/wifi/sockets 0770 wifi wifi
-    mkdir /data/misc/dhcp 0770 dhcp dhcp
-    mkdir /data/nvcam 0700 media camera
+
+    mkdir /data/misc/wifi
+    chmod 0770 /data/misc/wifi
+    chown wifi wifi /data/misc/wifi
+
+    mkdir /data/misc/wifi/sockets
+    chmod 0770 /data/misc/wifi/sockets
+    chown wifi wifi /data/misc/wifi/sockets
+
+    mkdir /data/misc/dhcp
+    chmod 0770 /data/misc/dhcp
     chown dhcp dhcp /data/misc/dhcp
 
-    mkdir /data/misc/wminput 0776 system system
+    mkdir /data/nvcam
+    chmod 0700 /data/nvcam
+    chown media camera /data/nvcam
 
-    # we will remap this as /storage/sdcard0 with the sdcard fuse tool
-    mkdir /data/media 0770 media_rw media_rw
+    mkdir /data/misc/wminput
+    chmod 0776 /data/misc/wminput
+    chown system system /data/misc/wminput
+
+    mkdir /data/media
+    chmod 0770 /data/media
     chown media_rw media_rw /data/media
 
-    # Set indication (checked by vold) that we have finished this action
+    mkdir /data/gps
+    chmod 770 /data/gps
+    chown system system /data/gps
+
+    mkdir /data/modem
+    chmod 0770 /data/modem
+    chown radio system /data/modem
+
     setprop vold.post_fs_data_done 1
 
 on boot
@@ -85,10 +105,6 @@ on boot
     chown system system /sys/module/cpu_tegra/parameters/pwr_cap_limit_3
     chown system system /sys/module/cpu_tegra/parameters/pwr_cap_limit_4
 
-# NTFS and exFAT driver
-    insmod /sbin/tntfs.ko
-    insmod /sbin/texfat.ko
-
 # Sensor
     chown system system /sys/bus/iio/devices/device0/als_ir_mode
     chown system system /sys/bus/iio/devices/device0/als_enable
@@ -107,9 +123,6 @@ on boot
     chown system system /sys/bus/iio/devices/iio:device0/als_ir_mode
     chown system system /sys/bus/iio/devices/iio:device0/als_enable
     chown system system /sys/bus/iio/devices/iio:device0/proximity_enable
-    insmod /system/lib/modules/mpu3050.ko
-    insmod /system/lib/modules/inv_mpu_kxtf9.ko
-    insmod /system/lib/modules/inv_mpu_ak8975.ko
 
 # Power management settings
     chown system system /sys/module/cpu_tegra3/parameters/no_lp
@@ -146,9 +159,6 @@ on boot
     write /sys/block/mmcblk1/queue/read_ahead_kb 2048
 
 # GPS
-    mkdir /data/gps
-    chown system system /data/gps
-    chmod 770 /data/gps
     chown system system /sys/module/cpu_tegra/parameters/gps_start
     chmod 600 /sys/module/cpu_tegra/parameters/gps_start
 
@@ -164,7 +174,6 @@ on boot
     chmod 0664 /sys/class/gpio/gpio162/value
 
 # ril
-    mkdir /data/modem 0770 radio system
     chown radio system /sys/devices/virtual/ril/files/prox_onoff
 
 #insmod cfg80211.ko for cfg80211 and P2P mode.
@@ -297,7 +306,6 @@ service hciattach /system/bin/bt_firmware_loader.sh
     disabled
 
 # Start GPS daemon
-  on boot
   service gps-daemon /system/bin/glgps -c /system/etc/gps/gpsconfig.xml
   user root
   socket gps seqpacket 0666 root root
