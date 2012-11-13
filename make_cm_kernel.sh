@@ -19,10 +19,10 @@ mv ramdisk.cpio.gz LNX.ramdisk.cpio.gz
 ./bin/mkbootimg --kernel zImage --ramdisk LNX.ramdisk.cpio.gz -o tmp
 rm ./LNX.ramdisk.cpio.gz
 ./bin/blobpack tmp.blob LNX tmp
-if [ -e ./update/kernel.blob ] ; then
-	rm ./update/kernel.blob
+if [ -e ./cm_update/kernel.blob ] ; then
+	rm ./cm_update/kernel.blob
 fi
-cat ./bin/blob_head ./tmp.blob > ./update/kernel.blob
+cat ./bin/blob_head ./tmp.blob > ./cm_update/kernel.blob
 if [ -d "./system" ] ; then
 	rm -fr ./cm_update/system
 	mkdir -p ./cm_update/system
