@@ -24,4 +24,4 @@ on post-fs-data
     chmod 770 /data/gps
     mkdir /data/modem
     chmod 0770 /data/modem
-    chwon radio system /data/modem
+    chown radio system /data/modem
