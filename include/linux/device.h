@@ -714,6 +714,13 @@ extern const char *device_get_devnode(struct device *dev,
 extern void *dev_get_drvdata(const struct device *dev);
 extern int dev_set_drvdata(struct device *dev, void *data);
 
+
+#ifdef MODULE
+extern struct module __this_module;
+#define THIS_MODULE (&__this_module)
+#else
+#define THIS_MODULE ((struct module *)0)
+#endif
 /*
  * Root device objects for grouping under /sys/devices
  */

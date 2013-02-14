@@ -175,6 +175,8 @@ obj-${CONFIG_MACH_CARDHU}               += board-cardhu-powermon.o
 obj-${CONFIG_MACH_CARDHU}               += board-cardhu-misc.o
 obj-${CONFIG_MACH_CARDHU}               += vibrator.o
 
+obj-${CONFIG_CARDHU_WIFI}              += cardhu_wifi.o
+
 obj-${CONFIG_MACH_KAI}                  += board-touch-kai-synaptics-spi.o
 obj-y                                   += board-touch-raydium_spi.o
 

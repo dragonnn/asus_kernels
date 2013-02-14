@@ -1163,6 +1163,8 @@ static int __init console_suspend_disable(char *str)
 	return 1;
 }
 __setup("no_console_suspend", console_suspend_disable);
+module_param_named(console_suspend, console_suspend_enabled,
+					bool, S_IRUGO | S_IWUSR);
 
 /**
  * suspend_console - suspend the console subsystem

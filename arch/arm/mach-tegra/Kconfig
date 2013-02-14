@@ -197,6 +197,12 @@ config MACH_CARDHU
        help
          Support for NVIDIA Cardhu development platform
 
+config CARDHU_WIFI
+       select WIRELESS_EXT
+       depends on MACH_CARDHU
+       default m
+       tristate "Cardhu wifi activator"
+
 config MACH_P1852
        bool "P1852 board"
        depends on ARCH_TEGRA_3x_SOC
