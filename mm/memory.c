@@ -154,7 +154,6 @@ static int __init init_zero_pfn(void)
 core_initcall(init_zero_pfn);
 
 
-
 #if defined(SPLIT_RSS_COUNTING)
 
 static void __sync_task_rss_stat(struct task_struct *task, struct mm_struct *mm)

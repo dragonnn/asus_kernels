@@ -25,7 +25,7 @@ config HAS_EARLYSUSPEND
 	bool
 
 config WAKELOCK
-	bool "Wake lock"
+	tristate "Wake lock"
 	depends on PM && RTC_CLASS
 	default n
 	select HAS_WAKELOCK
